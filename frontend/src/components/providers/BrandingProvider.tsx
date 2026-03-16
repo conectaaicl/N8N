@@ -30,8 +30,7 @@ export const BrandingProvider = ({ children }: { children: React.ReactNode }) =>
     useEffect(() => {
         const fetchBranding = async () => {
             try {
-                const host = window.location.host;
-                const data = await getPublicInfo(host);
+                const data = await getPublicInfo();
                 setBranding(data);
 
                 // Apply primary color to CSS variable

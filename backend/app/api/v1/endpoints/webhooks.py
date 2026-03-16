@@ -1,32 +1,90 @@
+"""
+Webhook endpoints for all channels:
+  GET/POST /webhooks/whatsapp      — WhatsApp Cloud API
+  GET/POST /webhooks/meta          — Instagram DMs + Facebook Messenger + Lead Ads
+  POST     /webhooks/tiktok        — TikTok Lead Gen
+  POST     /webhooks/shopify       — Shopify Orders/Customers
+  POST     /webhooks/email         — Email inbound (SendGrid/Mailgun)
+"""
+import base64
+import hashlib
+import hmac
+import json
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
+
 from app.core.database import get_db, tenant_db_session
-from app.core.config import settings
+from app.models.core import Tenant, TenantSettings
 from app.services.crm import ingest_lead
 from app.services.automation import trigger_n8n_workflow
-from app.models.core import Tenant, TenantSettings
 
 router = APIRouter()
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _find_tenant(db: Session, **kwargs):
+    """Find TenantSettings+Tenant by a credential field, fallback to first tenant."""
+    for field, value in kwargs.items():
+        if value:
+            s = db.query(TenantSettings).filter(
+                getattr(TenantSettings, field) == value
+            ).first()
+            if s and s.tenant:
+                return s, s.tenant
+    tenant = db.query(Tenant).first()
+    if tenant and tenant.settings:
+        return tenant.settings, tenant
+    return None, None
+
+
+async def _ingest(db, tenant, settings, lead_data: dict):
+    """Save to DB, then fire n8n workflow."""
+    with tenant_db_session(tenant.schema_name) as tdb:
+        contact, conversation = ingest_lead(tdb, lead_data, tenant.id)
+        cid, cvid = contact.id, conversation.id
+
+    if settings and settings.n8n_url and settings.n8n_webhook_path:
+        payload = {
+            "tenant_id": tenant.id,
+            "channel": lead_data.get("source"),
+            "contact": {
+                "id": cid,
+                "name": lead_data.get("name"),
+                "phone": lead_data.get("phone"),
+                "email": lead_data.get("email"),
+            },
+            "message": {
+                "content": lead_data.get("message", ""),
+                "conversation_id": cvid,
+            },
+        }
+        await trigger_n8n_workflow(settings, payload)
+
+
+# ── WhatsApp ─────────────────────────────────────────────────────────────────
+
 @router.get("/whatsapp")
-async def verify_whatsapp_webhook(request: Request):
-    params = request.query_params
-    hub_mode = params.get("hub.mode")
-    hub_verify_token = params.get("hub.verify_token")
-    hub_challenge = params.get("hub.challenge")
-
-    if hub_mode == "subscribe" and hub_verify_token == settings.WHATSAPP_VERIFY_TOKEN:
-        return Response(content=hub_challenge, media_type="text/plain")
-
+async def verify_whatsapp(request: Request, db: Session = Depends(get_db)):
+    p = request.query_params
+    mode = p.get("hub.mode")
+    token = p.get("hub.verify_token")
+    challenge = p.get("hub.challenge")
+    if mode == "subscribe" and token:
+        s = db.query(TenantSettings).filter(
+            TenantSettings.whatsapp_verify_token == token
+        ).first()
+        if s:
+            return PlainTextResponse(challenge)
     raise HTTPException(status_code=403, detail="Verification failed")
 
 
 @router.post("/whatsapp")
-async def handle_whatsapp_webhook(request: Request, db: Session = Depends(get_db)):
+async def handle_whatsapp(request: Request, db: Session = Depends(get_db)):
     body = await request.json()
-
     entry = body.get("entry", [{}])[0]
     changes = entry.get("changes", [{}])[0]
     value = changes.get("value", {})
@@ -34,58 +92,236 @@ async def handle_whatsapp_webhook(request: Request, db: Session = Depends(get_db
     if "messages" not in value:
         return {"status": "no_messages"}
 
-    phone_number_id = value.get("metadata", {}).get("phone_number_id")
+    phone_id = value.get("metadata", {}).get("phone_number_id")
+    settings, tenant = _find_tenant(db, whatsapp_phone_id=phone_id)
+    if not tenant:
+        return {"status": "tenant_not_found"}
 
-    tenant_settings = db.query(TenantSettings).filter(
-        TenantSettings.whatsapp_phone_id == phone_number_id
-    ).first()
-    if not tenant_settings:
-        tenant = db.query(Tenant).first()
-        if not tenant:
-            return {"status": "tenant_not_found"}
-        tenant_settings = tenant.settings
-        tenant_obj = tenant
-    else:
-        tenant_obj = tenant_settings.tenant
-
-    messages = value.get("messages", [])
     contacts_info = value.get("contacts", [])
-
-    with tenant_db_session(tenant_obj.schema_name) as tenant_db:
-        for msg in messages:
-            sender_phone = msg.get("from")
+    for msg in value.get("messages", []):
+        msg_type = msg.get("type", "text")
+        if msg_type == "text":
             content = msg.get("text", {}).get("body", "")
-            contact_name = (
-                contacts_info[0].get("profile", {}).get("name", "WhatsApp User")
-                if contacts_info else "WhatsApp User"
-            )
+        elif msg_type == "image":
+            content = "[Imagen recibida]"
+        elif msg_type == "audio":
+            content = "[Audio recibido]"
+        elif msg_type == "document":
+            content = "[Documento recibido]"
+        else:
+            content = f"[{msg_type}]"
 
-            lead_data = {
-                "name": contact_name,
-                "phone": sender_phone,
-                "source": "whatsapp",
-                "message": content,
-                "whatsapp_msg_id": msg.get("id")
-            }
+        contact_name = (
+            contacts_info[0].get("profile", {}).get("name", "WhatsApp User")
+            if contacts_info else "WhatsApp User"
+        )
+        await _ingest(db, tenant, settings, {
+            "name": contact_name,
+            "phone": msg.get("from"),
+            "source": "whatsapp",
+            "message": content,
+            "external_id": msg.get("id"),
+        })
 
-            contact, conversation = ingest_lead(tenant_db, lead_data, tenant_obj.id)
-
-            if tenant_settings.n8n_url and tenant_settings.n8n_webhook_path:
-                payload = {
-                    "tenant_id": tenant_obj.id,
-                    "contact": {"id": contact.id, "name": contact.name, "phone": contact.phone},
-                    "message": {"content": content, "id": msg.get("id")}
-                }
-                await trigger_n8n_workflow(tenant_settings, payload)
-
-    return {"status": "success"}
+    return {"status": "ok"}
 
 
-@router.post("/facebook-leads")
-async def handle_facebook_leads(request: Request, db: Session = Depends(get_db)):
-    return {"status": "success"}
+# ── Meta (Instagram DMs + Facebook Messenger + Lead Ads) ────────────────────
+
+@router.get("/meta")
+async def verify_meta(request: Request, db: Session = Depends(get_db)):
+    p = request.query_params
+    mode = p.get("hub.mode")
+    token = p.get("hub.verify_token")
+    challenge = p.get("hub.challenge")
+    if mode == "subscribe" and token:
+        s = db.query(TenantSettings).filter(
+            (TenantSettings.instagram_verify_token == token) |
+            (TenantSettings.facebook_verify_token == token)
+        ).first()
+        if s:
+            return PlainTextResponse(challenge)
+    raise HTTPException(status_code=403, detail="Verification failed")
 
 
-@router.post("/tiktok-leads")
-async def handle_tiktok_leads(request: Request, db: Session = Depends(get_db)):
-    return {"status": "success"}
+@router.post("/meta")
+async def handle_meta(request: Request, db: Session = Depends(get_db)):
+    body = await request.json()
+    obj_type = body.get("object")  # "instagram" or "page"
+
+    for entry in body.get("entry", []):
+        page_id = entry.get("id")
+
+        if obj_type == "instagram":
+            settings, tenant = _find_tenant(db, instagram_page_id=page_id)
+            for messaging in entry.get("messaging", []):
+                sender_id = messaging.get("sender", {}).get("id")
+                content = messaging.get("message", {}).get("text", "[Mensaje Instagram]")
+                if not content:
+                    continue
+                await _ingest(db, tenant, settings, {
+                    "name": f"Instagram_{sender_id[-6:]}",
+                    "external_id": sender_id,
+                    "source": "instagram",
+                    "message": content,
+                })
+
+        elif obj_type == "page":
+            settings, tenant = _find_tenant(db, facebook_page_id=page_id)
+
+            # Messenger messages
+            for messaging in entry.get("messaging", []):
+                psid = messaging.get("sender", {}).get("id")
+                content = messaging.get("message", {}).get("text", "")
+                if not content:
+                    continue
+                await _ingest(db, tenant, settings, {
+                    "name": f"FB_{psid[-6:]}",
+                    "external_id": psid,
+                    "source": "facebook",
+                    "message": content,
+                })
+
+            # Lead Ads
+            for change in entry.get("changes", []):
+                if change.get("field") == "leadgen":
+                    val = change.get("value", {})
+                    fields = {f["name"]: f["values"][0]
+                              for f in val.get("field_data", []) if f.get("values")}
+                    await _ingest(db, tenant, settings, {
+                        "name": fields.get("full_name", fields.get("first_name", "Facebook Lead")),
+                        "phone": fields.get("phone_number"),
+                        "email": fields.get("email"),
+                        "source": "facebook",
+                        "message": f"Lead Ad: {val.get('ad_name', 'Facebook Lead Ad')}",
+                        "campaign": val.get("ad_name"),
+                    })
+
+    return {"status": "ok"}
+
+
+# ── TikTok Lead Gen ───────────────────────────────────────────────────────────
+
+@router.post("/tiktok")
+async def handle_tiktok(request: Request, db: Session = Depends(get_db)):
+    body = await request.json()
+    settings, tenant = _find_tenant(db, tiktok_app_id=body.get("app_id"))
+    if not tenant:
+        return {"status": "tenant_not_found"}
+
+    leads = body.get("leads", [body])
+    for lead in leads:
+        fields = {f["name"]: f["value"] for f in lead.get("field_data", [])}
+        await _ingest(db, tenant, settings, {
+            "name": fields.get("full_name", fields.get("name", "TikTok Lead")),
+            "phone": fields.get("phone_number", fields.get("phone")),
+            "email": fields.get("email"),
+            "source": "tiktok",
+            "message": f"TikTok Lead Form: {lead.get('form_name', 'Lead Gen')}",
+            "campaign": lead.get("ad_name") or lead.get("campaign_name"),
+        })
+
+    return {"status": "ok"}
+
+
+# ── Shopify ───────────────────────────────────────────────────────────────────
+
+@router.post("/shopify")
+async def handle_shopify(request: Request, db: Session = Depends(get_db)):
+    topic = request.headers.get("X-Shopify-Topic", "")
+    shop_domain = request.headers.get("X-Shopify-Shop-Domain", "")
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256", "")
+    body_bytes = await request.body()
+
+    settings, tenant = _find_tenant(db, shopify_shop_domain=shop_domain)
+    if not tenant:
+        return {"status": "tenant_not_found"}
+
+    # HMAC verification
+    if settings and settings.shopify_webhook_secret:
+        digest = hmac.new(
+            settings.shopify_webhook_secret.encode(),
+            body_bytes,
+            hashlib.sha256,
+        ).digest()
+        expected = base64.b64encode(digest).decode()
+        if not hmac.compare_digest(expected, hmac_header):
+            raise HTTPException(status_code=403, detail="HMAC mismatch")
+
+    body = json.loads(body_bytes)
+
+    if topic == "orders/create":
+        customer = body.get("customer", {})
+        name = f"{customer.get('first_name','')} {customer.get('last_name','')}".strip()
+        await _ingest(db, tenant, settings, {
+            "name": name or "Shopify Customer",
+            "email": customer.get("email") or body.get("email"),
+            "phone": customer.get("phone") or body.get("shipping_address", {}).get("phone"),
+            "source": "shopify",
+            "message": f"Nueva orden #{body.get('order_number')} — ${body.get('total_price','0')}",
+            "campaign": "shopify_order",
+        })
+
+    elif topic == "customers/create":
+        name = f"{body.get('first_name','')} {body.get('last_name','')}".strip()
+        await _ingest(db, tenant, settings, {
+            "name": name or "Shopify Customer",
+            "email": body.get("email"),
+            "phone": body.get("phone"),
+            "source": "shopify",
+            "message": "Nuevo cliente registrado en Shopify",
+            "campaign": "shopify_customer",
+        })
+
+    elif topic in ("checkouts/create", "checkouts/update"):
+        customer = body.get("customer", {})
+        name = f"{customer.get('first_name','')} {customer.get('last_name','')}".strip()
+        await _ingest(db, tenant, settings, {
+            "name": name or "Visitante",
+            "email": customer.get("email") or body.get("email"),
+            "phone": customer.get("phone"),
+            "source": "shopify",
+            "message": f"Abandono de carrito — ${body.get('total_price','0')}",
+            "campaign": "shopify_cart_abandoned",
+        })
+
+    return {"status": "ok"}
+
+
+# ── Email inbound ─────────────────────────────────────────────────────────────
+
+@router.post("/email")
+async def handle_email_inbound(request: Request, db: Session = Depends(get_db)):
+    content_type = request.headers.get("content-type", "")
+    if "multipart" in content_type or "form" in content_type:
+        form = await request.form()
+        from_raw = str(form.get("from", form.get("sender", "unknown@email.com")))
+        subject = str(form.get("subject", "Sin asunto"))
+        text_body = str(form.get("text", form.get("body-plain", form.get("stripped-text", ""))))
+    else:
+        body = await request.json()
+        from_raw = body.get("from", body.get("sender", "unknown@email.com"))
+        subject = body.get("subject", "Sin asunto")
+        text_body = body.get("text", body.get("body", ""))
+
+    name_match = re.match(r'^(.+?)\s*<(.+?)>', from_raw)
+    if name_match:
+        sender_name = name_match.group(1).strip('"').strip()
+        sender_email = name_match.group(2).strip()
+    else:
+        sender_email = from_raw.strip()
+        sender_name = sender_email.split("@")[0]
+
+    settings, tenant = _find_tenant(db)
+    if not tenant:
+        return {"status": "tenant_not_found"}
+
+    await _ingest(db, tenant, settings, {
+        "name": sender_name,
+        "email": sender_email,
+        "source": "email",
+        "message": f"{subject}: {text_body[:500]}" if text_body else subject,
+        "campaign": "email_inbound",
+    })
+
+    return {"status": "ok"}

@@ -3,18 +3,17 @@ from typing import Optional
 from datetime import datetime
 
 
-class TenantBase(BaseModel):
+class TenantCreate(BaseModel):
     name: str
     subdomain: str
-
-
-class TenantCreate(TenantBase):
     admin_email: EmailStr
     password: str
 
 
-class TenantRead(TenantBase):
+class TenantRead(BaseModel):
     id: int
+    name: str
+    subdomain: str
     is_active: bool
     created_at: datetime
 
@@ -24,15 +23,68 @@ class TenantRead(TenantBase):
 
 class TenantSettingsRead(BaseModel):
     logo_url: Optional[str] = None
-    primary_color: str
+    primary_color: str = "#7c3aed"
     favicon_url: Optional[str] = None
     support_email: Optional[str] = None
-    whatsapp_number: Optional[str] = None
-    timezone: str
-    language: str
+    support_phone: Optional[str] = None
+    timezone: str = "UTC"
+    language: str = "es"
+    has_whatsapp: bool = False
+    has_instagram: bool = False
+    has_facebook: bool = False
+    has_tiktok: bool = False
+    has_shopify: bool = False
+    has_email: bool = False
+    webchat_enabled: bool = True
+    webchat_greeting: Optional[str] = None
+    webchat_bot_name: Optional[str] = None
+    webchat_color: Optional[str] = None
+    n8n_url: Optional[str] = None
+    n8n_webhook_path: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class TenantSettingsUpdate(BaseModel):
+    logo_url: Optional[str] = None
+    primary_color: Optional[str] = None
+    support_email: Optional[str] = None
+    support_phone: Optional[str] = None
+    timezone: Optional[str] = None
+    language: Optional[str] = None
+    whatsapp_phone_id: Optional[str] = None
+    whatsapp_access_token: Optional[str] = None
+    whatsapp_verify_token: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    instagram_page_id: Optional[str] = None
+    instagram_access_token: Optional[str] = None
+    instagram_verify_token: Optional[str] = None
+    facebook_page_id: Optional[str] = None
+    facebook_access_token: Optional[str] = None
+    facebook_verify_token: Optional[str] = None
+    tiktok_app_id: Optional[str] = None
+    tiktok_app_secret: Optional[str] = None
+    tiktok_access_token: Optional[str] = None
+    shopify_shop_domain: Optional[str] = None
+    shopify_access_token: Optional[str] = None
+    shopify_webhook_secret: Optional[str] = None
+    email_provider: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from_address: Optional[str] = None
+    sendgrid_api_key: Optional[str] = None
+    mailgun_api_key: Optional[str] = None
+    mailgun_domain: Optional[str] = None
+    webchat_enabled: Optional[bool] = None
+    webchat_greeting: Optional[str] = None
+    webchat_bot_name: Optional[str] = None
+    webchat_color: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    n8n_url: Optional[str] = None
+    n8n_webhook_path: Optional[str] = None
 
 
 class PublicTenantInfo(BaseModel):
@@ -43,12 +95,3 @@ class PublicTenantInfo(BaseModel):
 
     class Config:
         from_attributes = True
-
-
-class TenantSettingsUpdate(BaseModel):
-    logo_url: Optional[str] = None
-    primary_color: Optional[str] = None
-    support_email: Optional[str] = None
-    whatsapp_number: Optional[str] = None
-    timezone: Optional[str] = None
-    language: Optional[str] = None

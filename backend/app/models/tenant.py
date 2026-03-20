@@ -31,6 +31,7 @@ class Conversation(Base):
     status = Column(String, default="open")
     last_message = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    bot_active = Column(Boolean, default=True)  # False = human agent in control
 
     contact = relationship("Contact", back_populates="conversations")
     messages = relationship("Message", back_populates="conversation")

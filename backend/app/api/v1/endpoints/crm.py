@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from typing import Optional
 from sqlalchemy.orm import Session
 from app.core.database import get_db, tenant_db_session
 from app.core.security import get_current_user
@@ -62,6 +64,71 @@ def get_pipeline(
                 "deals": deal_list,
             })
         return result
+
+
+@router.get("/contacts")
+def list_contacts(
+    search: Optional[str] = Query(None),
+    source: Optional[str] = Query(None),
+    limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    tenant = _get_tenant(db, current_user)
+    with tenant_db_session(tenant.schema_name) as tdb:
+        q = tdb.query(Contact)
+        if search:
+            s = f"%{search}%"
+            q = q.filter(
+                Contact.name.ilike(s) | Contact.phone.ilike(s) | Contact.email.ilike(s)
+            )
+        if source:
+            q = q.filter(Contact.source == source)
+        total = q.count()
+        contacts = q.order_by(Contact.last_interaction.desc()).offset(offset).limit(limit).all()
+        return {
+            "total": total,
+            "contacts": [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "phone": c.phone,
+                    "email": c.email,
+                    "source": c.source,
+                    "lead_score": c.lead_score,
+                    "intent": c.intent,
+                    "last_interaction": c.last_interaction.isoformat() if c.last_interaction else None,
+                }
+                for c in contacts
+            ],
+        }
+
+
+class ContactUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    lead_score: Optional[int] = None
+    intent: Optional[str] = None
+
+
+@router.patch("/contacts/{contact_id}")
+def update_contact(
+    contact_id: int,
+    data: ContactUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    tenant = _get_tenant(db, current_user)
+    with tenant_db_session(tenant.schema_name) as tdb:
+        contact = tdb.query(Contact).filter(Contact.id == contact_id).first()
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        for field, value in data.model_dump(exclude_unset=True).items():
+            setattr(contact, field, value)
+        tdb.commit()
+        return {"ok": True}
 
 
 @router.patch("/deals/{deal_id}/move")

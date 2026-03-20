@@ -1,5 +1,6 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core.database import get_db, tenant_db_session
 from app.core.security import get_current_user
@@ -56,6 +57,7 @@ def get_conversations(
                 "status": conv.status,
                 "last_message": conv.last_message,
                 "updated_at": conv.updated_at.isoformat() if conv.updated_at else None,
+                "bot_active": getattr(conv, "bot_active", True),
                 "contact": {
                     "id": contact.id,
                     "name": contact.name,
@@ -146,3 +148,31 @@ async def send_message(
         sent = True  # Saved to DB, widget polls for it
 
     return {"status": "sent", "delivered": sent, "channel": channel}
+
+
+# ── Human handoff toggle ───────────────────────────────────────────────────────
+
+class HandoffPayload(BaseModel):
+    bot_active: bool
+
+
+@router.patch("/{conversation_id}/handoff")
+def toggle_handoff(
+    conversation_id: int,
+    payload: HandoffPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Toggle bot/human control for a conversation.
+    bot_active=True  → AI responds automatically
+    bot_active=False → AI is silenced, human agent responds
+    """
+    tenant = _get_tenant(db, current_user)
+    with tenant_db_session(tenant.schema_name) as tdb:
+        conv = tdb.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if not conv:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        conv.bot_active = payload.bot_active
+        tdb.commit()
+    return {"conversation_id": conversation_id, "bot_active": payload.bot_active}

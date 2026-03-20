@@ -42,6 +42,12 @@ export const authAPI = {
     })
   },
   me: () => api.get('/auth/me'),
+  changePassword: (current_password: string, new_password: string) =>
+    api.post('/auth/change-password', { current_password, new_password }),
+  forgotPassword: (email: string) =>
+    api.post('/auth/forgot-password', { email }),
+  resetPassword: (token: string, new_password: string) =>
+    api.post('/auth/reset-password', { token, new_password }),
 }
 
 // ── Tenant ───────────────────────────────────────────────────
@@ -59,6 +65,8 @@ export const conversationsAPI = {
   getMessages: (id: number) => api.get(`/conversations/${id}/messages`),
   send: (id: number, content: string) =>
     api.post(`/conversations/${id}/send`, null, { params: { content } }),
+  toggleHandoff: (id: number, botActive: boolean) =>
+    api.patch(`/conversations/${id}/handoff`, { bot_active: botActive }),
 }
 
 // ── CRM ──────────────────────────────────────────────────────
@@ -66,6 +74,10 @@ export const crmAPI = {
   getPipeline: () => api.get('/crm/pipeline'),
   moveDeal: (dealId: number, targetStageId: number) =>
     api.patch(`/crm/deals/${dealId}/move`, null, { params: { target_stage_id: targetStageId } }),
+  getContacts: (params?: { search?: string; source?: string; limit?: number; offset?: number }) =>
+    api.get('/crm/contacts', { params }),
+  updateContact: (id: number, data: Record<string, unknown>) =>
+    api.patch(`/crm/contacts/${id}`, data),
 }
 
 // ── Billing ──────────────────────────────────────────────────
@@ -74,6 +86,19 @@ export const billingAPI = {
   subscribe: (planId: number) => api.post(`/billing/subscribe/${planId}`),
   createMPPreference: (data: { plan: string; billing: string; email: string; subdomain: string }) =>
     api.post('/billing/create-preference', data),
+}
+
+// ── Team / Users ─────────────────────────────────────────────
+export const usersAPI = {
+  list: () => api.get('/users/'),
+  listRoles: () => api.get('/users/roles/'),
+  create: (data: { full_name: string; email: string; password: string; role_id?: number | null; is_active?: boolean }) =>
+    api.post('/users/', data),
+  update: (id: number, data: { full_name?: string; email?: string; role_id?: number | null; is_active?: boolean }) =>
+    api.patch(`/users/${id}`, data),
+  setPassword: (id: number, new_password: string) =>
+    api.post(`/users/${id}/set-password`, { new_password }),
+  deactivate: (id: number) => api.delete(`/users/${id}`),
 }
 
 // ── Admin ────────────────────────────────────────────────────

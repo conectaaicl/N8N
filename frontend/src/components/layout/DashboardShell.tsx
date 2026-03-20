@@ -5,9 +5,11 @@ import { useBranding } from '@/components/providers/BrandingProvider'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 
-interface User { name: string; email: string; initials: string; role: string }
+interface User { name: string; email: string; initials: string; role: string; is_superuser?: boolean }
+interface NavItem { href: string; label: string; icon: React.ReactNode; external?: boolean }
+interface NavGroup { label: string; items: NavItem[] }
 
-const NAV_GROUPS = [
+const NAV_BASE: NavGroup[] = [
   {
     label: 'PRINCIPAL',
     items: [
@@ -31,14 +33,20 @@ const NAV_GROUPS = [
   {
     label: 'CONFIGURACIÓN',
     items: [
+      { href: '/team', label: 'Equipo', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg> },
       { href: '/settings/integrations', label: 'Canales', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg> },
       { href: '/settings', label: 'Ajustes', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" strokeWidth="2"/></svg> },
       { href: '/settings/billing', label: 'Suscripción', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="1" y="4" width="22" height="16" rx="2" stroke="currentColor" strokeWidth="2"/><path d="M1 10h22" stroke="currentColor" strokeWidth="2"/></svg> },
-      { href: '/admin', label: 'SuperAdmin', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/></svg> },
-      { href: '/register', label: 'Registrarse', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" strokeWidth="2"/><path d="M19 8v6M22 11h-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg> },
     ],
   },
 ]
+
+const SUPERADMIN_GROUP: NavGroup = {
+  label: 'SISTEMA',
+  items: [
+    { href: '/admin', label: 'SuperAdmin', icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/></svg> },
+  ],
+}
 
 function decodeJwt(token: string): Record<string, unknown> | null {
   try { return JSON.parse(atob(token.split('.')[1])) } catch { return null }
@@ -62,7 +70,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         const u = JSON.parse(cached)
         const nm = u.full_name || u.email || 'Usuario'
         const initials = nm.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)
-        setUser({ name: nm, email: u.email, initials, role: u.role || 'admin' })
+        setUser({ name: nm, email: u.email, initials, role: u.role || 'admin', is_superuser: !!u.is_superuser })
       } catch { /* */ }
     }
   }, [router])
@@ -85,7 +93,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
     return pathname.startsWith(href)
   }
 
-  const pc = branding?.settings?.primary_color || '#7c3aed'
+  const pc = branding?.settings?.primary_color || '#00e5a0'
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#080812]">
@@ -97,7 +105,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
         <div className={`h-14 border-b border-white/5 flex items-center flex-shrink-0 ${collapsed ? 'justify-center px-3' : 'px-5 gap-3'}`}>
           <Link href="/dashboard" className="flex items-center gap-2.5 min-w-0">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: `linear-gradient(135deg, ${pc}, ${pc}99)`, boxShadow: `0 0 20px ${pc}40` }}>
+              style={{ background: 'linear-gradient(135deg, #00e5a0, #00e5a099)', boxShadow: '0 0 20px #00e5a040' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
@@ -125,7 +133,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
 
         {/* Nav groups */}
         <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-5">
-          {NAV_GROUPS.map((group) => (
+          {[...NAV_BASE, ...(user?.is_superuser ? [SUPERADMIN_GROUP] : [])].map((group) => (
             <div key={group.label}>
               {!collapsed && (
                 <p className="px-3 mb-1.5 text-[9px] font-bold text-slate-700 tracking-[0.12em]">{group.label}</p>

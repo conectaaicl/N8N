@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.models.billing import Plan, Subscription
-from app.models.core import Tenant
+from app.models.core import Tenant, User
 
 router = APIRouter()
 
@@ -30,8 +31,11 @@ PLAN_TITLES = {
 
 # ── Current subscription ──────────────────────────────────────────────────────
 @router.get("/current")
-def get_current_subscription(db: Session = Depends(get_db)):
-    tenant = db.query(Tenant).first()
+def get_current_subscription(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
     sub = db.query(Subscription).filter(Subscription.tenant_id == tenant.id).first()
@@ -46,8 +50,14 @@ def get_current_subscription(db: Session = Depends(get_db)):
 
 # ── Internal subscribe (admin / post-payment activation) ─────────────────────
 @router.post("/subscribe/{plan_id}")
-def create_subscription(plan_id: int, db: Session = Depends(get_db)):
-    tenant = db.query(Tenant).first()
+def create_subscription(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
     plan = db.query(Plan).filter(Plan.id == plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -107,7 +117,7 @@ async def create_mp_preference(body: PreferenceRequest):
             "pending": f"{settings.FRONTEND_URL}/payment-pending?plan={body.plan}&billing={body.billing}&email={body.email}&subdomain={body.subdomain}&method=mp",
         },
         "auto_return": "approved",
-        "notification_url": f"{settings.FRONTEND_URL}/api/v1/billing/mp-webhook",
+        "notification_url": f"{settings.BACKEND_URL}/api/v1/billing/mp-webhook",
     }
 
     async with httpx.AsyncClient() as client:

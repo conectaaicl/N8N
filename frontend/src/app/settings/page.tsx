@@ -64,11 +64,11 @@ const AI_PROVIDERS = [
   },
 ]
 
-const TAG_STYLE: Record<string, { bg: string; text: string }> = {
-  smart:  { bg: 'rgba(124,58,237,0.15)', text: '#a78bfa' },
-  fast:   { bg: 'rgba(16,185,129,0.12)', text: '#34d399' },
-  cheap:  { bg: 'rgba(245,158,11,0.12)', text: '#fbbf24' },
-  vision: { bg: 'rgba(59,130,246,0.12)', text: '#60a5fa' },
+const TAG_STYLE: Record<string, React.CSSProperties> = {
+  smart:  { background: 'rgba(124,58,237,0.15)', color: '#a78bfa' },
+  fast:   { background: 'rgba(16,185,129,0.12)', color: '#34d399' },
+  cheap:  { background: 'rgba(245,158,11,0.12)', color: '#fbbf24' },
+  vision: { background: 'rgba(59,130,246,0.12)', color: '#60a5fa' },
 }
 
 export default function SettingsPage() {
@@ -307,7 +307,7 @@ export default function SettingsPage() {
                             </div>
                             <div className="flex items-center gap-2 mt-1">
                               {model.tags.map(t => (
-                                <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-md font-medium" style={TAG_STYLE[t] || {}}>
+                                <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-md font-medium" style={TAG_STYLE[t] ?? {}}>
                                   {t === 'smart' ? '🧠 Inteligente' : t === 'fast' ? '⚡ Rápido' : t === 'cheap' ? '💰 Económico' : t === 'vision' ? '👁 Visión' : t}
                                 </span>
                               ))}

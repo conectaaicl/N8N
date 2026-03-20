@@ -1,13 +1,20 @@
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models.core import Tenant, TenantSettings
+from app.core.security import get_current_user
+from app.models.core import Tenant, TenantSettings, User
 from app.models.billing import Plan, Subscription
 from app.models.tenant import Contact, Conversation
 from app.core.database import tenant_db_session
 
 router = APIRouter()
+
+
+def require_superuser(current_user: User = Depends(get_current_user)) -> User:
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Superuser access required")
+    return current_user
 
 
 def _tenant_row(t: Tenant, db: Session) -> dict:
@@ -58,13 +65,13 @@ def _tenant_row(t: Tenant, db: Session) -> dict:
 
 
 @router.get("/tenants")
-def list_tenants(db: Session = Depends(get_db)):
+def list_tenants(db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     tenants = db.query(Tenant).order_by(Tenant.created_at.desc()).all()
     return [_tenant_row(t, db) for t in tenants]
 
 
 @router.get("/stats")
-def get_stats(db: Session = Depends(get_db)):
+def get_stats(db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     tenants = db.query(Tenant).all()
     active = [t for t in tenants if t.is_active]
 
@@ -101,7 +108,7 @@ def get_stats(db: Session = Depends(get_db)):
 
 
 @router.patch("/tenants/{tenant_id}/toggle")
-def toggle_tenant(tenant_id: int, db: Session = Depends(get_db)):
+def toggle_tenant(tenant_id: int, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -114,9 +121,10 @@ def toggle_tenant(tenant_id: int, db: Session = Depends(get_db)):
 def create_tenant_admin(
     name: str, subdomain: str, admin_email: str, password: str,
     db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
 ):
     from app.core.security import get_password_hash
-    from app.services.tenant_setup import create_new_tenant
+    from app.services.tenant import create_new_tenant
     existing = db.query(Tenant).filter(Tenant.subdomain == subdomain).first()
     if existing:
         raise HTTPException(status_code=400, detail="Subdomain already taken")
@@ -127,12 +135,12 @@ def create_tenant_admin(
 
 
 @router.get("/plans")
-def list_plans(db: Session = Depends(get_db)):
+def list_plans(db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     return db.query(Plan).all()
 
 
 @router.post("/plans")
-def create_plan(name: str, price: float, db: Session = Depends(get_db)):
+def create_plan(name: str, price: float, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     plan = Plan(name=name, price=price, features={})
     db.add(plan)
     db.commit()

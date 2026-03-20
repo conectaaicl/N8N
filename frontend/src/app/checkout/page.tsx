@@ -37,7 +37,8 @@ function CheckoutForm() {
   const handleMercadoPago = async () => {
     setMpLoading(true)
     try {
-      const res = await fetch('/api/v1/billing/create-preference', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'
+      const res = await fetch(`${apiUrl}/billing/create-preference`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ plan, billing, email, subdomain }),

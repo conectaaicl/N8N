@@ -12,7 +12,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db, tenant_db_session
+from app.core.redis_client import check_rate_limit
 from app.models.core import Tenant, TenantSettings
+from app.models.billing import Subscription
 from app.services.crm import ingest_lead
 from app.services.automation import trigger_n8n_workflow
 
@@ -90,6 +92,13 @@ async def receive_webchat_message(payload: WebChatMessage, request: Request, db:
     Receive a visitor message, generate an AI reply, persist both,
     and trigger the n8n workflow on the first message.
     """
+    # Rate limit by IP
+    forwarded = request.headers.get("X-Forwarded-For")
+    client_ip = (forwarded.split(",")[0].strip() if forwarded else None) or (
+        request.client.host if request.client else "unknown"
+    )
+    check_rate_limit(client_ip)
+
     tenant = db.query(Tenant).filter(Tenant.subdomain == payload.tenant_subdomain).first()
     if not tenant:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -98,6 +107,14 @@ async def receive_webchat_message(payload: WebChatMessage, request: Request, db:
 
     # Eagerly read all settings BEFORE switching DB context (avoids SQLAlchemy lazy-load failures)
     ai_key = settings.openai_api_key if settings else None
+
+    # ── Plan enforcement: disable AI if subscription is lapsed or plan excludes it ──
+    sub = db.query(Subscription).filter(Subscription.tenant_id == tenant.id).first()
+    if sub:
+        if sub.status in ("canceled", "past_due"):
+            ai_key = None  # lapsed subscription — disable AI
+        elif sub.plan and not (sub.plan.features or {}).get("ai", True):
+            ai_key = None  # Starter plan — no AI included
     ai_model = (getattr(settings, "ai_model", None) or "llama-3.1-8b-instant") if settings else "llama-3.1-8b-instant"
     n8n_url = settings.n8n_url if settings else None
     n8n_path = settings.n8n_webhook_path if settings else None
@@ -142,10 +159,12 @@ async def receive_webchat_message(payload: WebChatMessage, request: Request, db:
             for m in history
         ]
         is_first_message = sum(1 for m in history if m.sender_type == "contact") <= 1
+        # Human has taken control — skip AI
+        bot_active = getattr(conversation, "bot_active", True)
 
     # ── Generate AI reply ─────────────────────────────────────────────────────
     bot_reply = None
-    if ai_key:
+    if ai_key and bot_active:
         bot_reply = await get_ai_reply(ai_key, ai_messages, system_prompt, ai_model)
         print(f"[AI] reply generated: {bool(bot_reply)}", flush=True)
 

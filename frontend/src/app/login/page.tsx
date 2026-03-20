@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { authAPI } from '@/lib/api'
-import { Wifi, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
+import { Wifi, Mail, Lock, Eye, EyeOff, ArrowRight, AlertCircle, X, CheckCircle2 } from 'lucide-react'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -12,6 +12,13 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // Forgot password state
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotEmail, setForgotEmail] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
+  const [forgotDone, setForgotDone] = useState(false)
+  const [forgotError, setForgotError] = useState('')
 
   useEffect(() => {
     if (localStorage.getItem('omniflow_token')) {
@@ -31,7 +38,6 @@ export default function LoginPage() {
       const res = await authAPI.login(email, password)
       const { access_token } = res.data
       localStorage.setItem('omniflow_token', access_token)
-      // Fetch user info
       try {
         const { default: api } = await import('@/lib/api')
         const me = await api.get('/auth/me', {
@@ -46,6 +52,28 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleForgot = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!forgotEmail) return
+    setForgotLoading(true)
+    setForgotError('')
+    try {
+      await authAPI.forgotPassword(forgotEmail)
+      setForgotDone(true)
+    } catch {
+      setForgotError('Error al enviar el correo. Intenta de nuevo.')
+    } finally {
+      setForgotLoading(false)
+    }
+  }
+
+  const closeForgot = () => {
+    setShowForgot(false)
+    setForgotEmail('')
+    setForgotDone(false)
+    setForgotError('')
   }
 
   return (
@@ -98,7 +126,16 @@ export default function LoginPage() {
 
             {/* Password */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Contraseña</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-slate-400">Contraseña</label>
+                <button
+                  type="button"
+                  onClick={() => setShowForgot(true)}
+                  className="text-xs text-violet-400 hover:text-violet-300 transition-colors"
+                >
+                  ¿Olvidaste tu contraseña?
+                </button>
+              </div>
               <div className="relative">
                 <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
                 <input
@@ -144,6 +181,67 @@ export default function LoginPage() {
           </a>
         </p>
       </div>
+
+      {/* Forgot password modal */}
+      {showForgot && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-[#0d0d1a] border border-white/10 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold text-white">Recuperar contraseña</h2>
+              <button onClick={closeForgot} className="text-slate-500 hover:text-white transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+
+            {forgotDone ? (
+              <div className="text-center py-4">
+                <CheckCircle2 size={40} className="text-green-400 mx-auto mb-3" />
+                <p className="text-white font-medium mb-1">¡Correo enviado!</p>
+                <p className="text-slate-400 text-sm">Revisa tu bandeja de entrada. El enlace expira en 1 hora.</p>
+                <button
+                  onClick={closeForgot}
+                  className="mt-5 w-full py-2.5 rounded-xl bg-white/5 hover:bg-white/8 text-sm text-slate-300 transition-all"
+                >
+                  Cerrar
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgot} className="space-y-4">
+                <p className="text-slate-400 text-sm">Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.</p>
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1.5">Correo electrónico</label>
+                  <div className="relative">
+                    <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                    <input
+                      type="email"
+                      value={forgotEmail}
+                      onChange={(e) => setForgotEmail(e.target.value)}
+                      placeholder="admin@tuempresa.com"
+                      required
+                      className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-violet-500 transition-colors"
+                    />
+                  </div>
+                </div>
+                {forgotError && (
+                  <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{forgotError}</p>
+                )}
+                <div className="flex gap-2">
+                  <button type="button" onClick={closeForgot}
+                    className="flex-1 py-2.5 rounded-xl bg-white/5 hover:bg-white/8 text-sm text-slate-400 transition-all">
+                    Cancelar
+                  </button>
+                  <button type="submit" disabled={forgotLoading}
+                    className="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-sm font-semibold text-white transition-all disabled:opacity-50">
+                    {forgotLoading ? (
+                      <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto" />
+                    ) : 'Enviar enlace'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

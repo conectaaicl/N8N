@@ -23,7 +23,8 @@
 
   var visitorId = getVisitorId();
   var config = { color: '#1a5276', greeting: '¡Hola! ¿En qué puedo ayudarte hoy? 😊', bot_name: 'Asistente', enabled: true, logo_url: '', ai_enabled: false };
-  var lastMsgCount = 0;
+  var MSG_COUNT_KEY = 'omniflow_msgcount_' + TENANT + '_' + visitorId;
+  var lastMsgCount = parseInt(localStorage.getItem(MSG_COUNT_KEY) || '0', 10);
   var pollTimer = null;
   var isOpen = false;
   var waitingReply = false;
@@ -120,9 +121,6 @@
         font-size: 10px; color: #c0c0c0;
         border-top: 1px solid #f5f5f5; background: #fff;
       }
-      /* Hide original terrablinds chat */
-      div[class*="bottom-28"][class*="right-5"],
-      div[class*="bottom-24"][class*="right-5"][class*="w-"] { display: none !important; }
     `;
     var style = document.createElement('style');
     style.textContent = css;
@@ -274,6 +272,7 @@
             var newMsgs = agentMsgs.slice(lastMsgCount);
             newMsgs.forEach(function (m) { appendMsg('bot', m.content); });
             lastMsgCount = agentMsgs.length;
+            localStorage.setItem(MSG_COUNT_KEY, lastMsgCount);
             waitingReply = false;
             if (!isOpen) {
               var badge = document.getElementById('omniflow-badge');

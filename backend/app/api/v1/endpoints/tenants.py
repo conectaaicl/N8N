@@ -160,6 +160,8 @@ def get_dashboard_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    from datetime import datetime, timedelta, time as _time
+    from app.models.tenant import Conversation as TenantConversation
     tenant = _get_tenant(db, current_user)
     with tenant_db_session(tenant.schema_name) as tdb:
         total_contacts = tdb.query(Contact).count()
@@ -171,6 +173,26 @@ def get_dashboard_stats(
             .group_by(Contact.source)
             .all()
         )
+
+        # Weekly activity: last 7 days (today = index 6)
+        today = datetime.utcnow().date()
+        day_labels = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+        weekly = []
+        for i in range(6, -1, -1):
+            day = today - timedelta(days=i)
+            day_start = datetime.combine(day, _time(0, 0, 0))
+            day_end = datetime.combine(day, _time(23, 59, 59))
+            leads = tdb.query(Contact).filter(
+                Contact.last_interaction >= day_start,
+                Contact.last_interaction <= day_end,
+            ).count()
+            convs = tdb.query(TenantConversation).filter(
+                TenantConversation.updated_at >= day_start,
+                TenantConversation.updated_at <= day_end,
+            ).count()
+            label = "Hoy" if i == 0 else day_labels[day.weekday()]
+            weekly.append({"day": label, "leads": leads, "conversaciones": convs})
+
         return {
             "stats": {
                 "total_contacts": total_contacts,
@@ -180,4 +202,42 @@ def get_dashboard_stats(
                 "conversion_rate": (won_deals / total_deals * 100) if total_deals > 0 else 0,
             },
             "source_distribution": [{"source": s[0] or "unknown", "count": s[1]} for s in sources],
+            "weekly_activity": weekly,
         }
+
+
+@router.post("/test-whatsapp")
+async def test_whatsapp_send(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Send a test WhatsApp message using the tenant's saved credentials."""
+    import httpx
+    tenant = _get_tenant(db, current_user)
+    s = tenant.settings
+    if not s or not s.whatsapp_phone_id or not s.whatsapp_access_token:
+        raise HTTPException(status_code=400, detail="WhatsApp no configurado. Guarda Phone Number ID y Access Token primero.")
+
+    to = payload.get("to", "").strip().replace("+", "").replace(" ", "")
+    if not to:
+        raise HTTPException(status_code=400, detail="Número de destino requerido")
+
+    msg_body = payload.get("message", "✅ Prueba de conexión OmniFlow — WhatsApp configurado correctamente.")
+
+    url = f"https://graph.facebook.com/v19.0/{s.whatsapp_phone_id}/messages"
+    headers = {"Authorization": f"Bearer {s.whatsapp_access_token}", "Content-Type": "application/json"}
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": msg_body},
+    }
+    async with httpx.AsyncClient() as client:
+        try:
+            r = await client.post(url, json=data, headers=headers, timeout=10)
+            if r.status_code == 200:
+                return {"ok": True, "message_id": r.json().get("messages", [{}])[0].get("id")}
+            return {"ok": False, "error": r.json()}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))

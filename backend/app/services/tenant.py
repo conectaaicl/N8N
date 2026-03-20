@@ -42,7 +42,8 @@ def create_tenant_schema(schema_name: str):
         channel VARCHAR NOT NULL,
         status VARCHAR DEFAULT 'open',
         last_message TEXT,
-        updated_at TIMESTAMP DEFAULT NOW()
+        updated_at TIMESTAMP DEFAULT NOW(),
+        bot_active BOOLEAN DEFAULT TRUE
     );
 
     CREATE TABLE IF NOT EXISTS {schema_name}.messages (
@@ -172,13 +173,13 @@ def create_new_tenant(
     # Schema + tables + seed pipeline
     create_tenant_schema(schema_name)
 
-    # Admin user
+    # Admin user (tenant admin — NOT platform superuser)
     admin_user = User(
         tenant_id=new_tenant.id,
         email=admin_email,
         hashed_password=hashed_password,
         full_name="Admin",
-        is_superuser=True,
+        is_superuser=False,
         is_active=True,
     )
     db.add(admin_user)

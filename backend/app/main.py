@@ -11,6 +11,138 @@ import app.models.tenant  # noqa: F401
 # Create public tables if they don't exist
 Base.metadata.create_all(bind=engine)
 
+# Seed default plans if table is empty
+def _seed_plans():
+    from app.core.database import SessionLocal
+    from app.models.billing import Plan
+    db = SessionLocal()
+    try:
+        for name, price, features in [
+            ("Starter", 29.0, {"contacts": 1000, "channels": 2, "ai": False}),
+            ("Pro",     79.0, {"contacts": 10000, "channels": 5, "ai": True}),
+            ("Enterprise", 199.0, {"contacts": -1, "channels": -1, "ai": True}),
+        ]:
+            if not db.query(Plan).filter(Plan.name == name).first():
+                db.add(Plan(name=name, price=price, features=features))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[startup] Plan seed warning: {e}", flush=True)
+    finally:
+        db.close()
+
+_seed_plans()
+
+
+def _seed_roles():
+    from app.core.database import SessionLocal
+    from app.models.core import Role
+    db = SessionLocal()
+    try:
+        for name, permissions in [
+            ("admin",  {"conversations": True, "crm": True, "settings": True, "billing": True, "team": True}),
+            ("agent",  {"conversations": True, "crm": True, "settings": False, "billing": False, "team": False}),
+            ("viewer", {"conversations": True, "crm": False, "settings": False, "billing": False, "team": False}),
+        ]:
+            existing = db.query(Role).filter(Role.name == name).first()
+            if not existing:
+                db.add(Role(name=name, permissions=permissions))
+        db.commit()
+    finally:
+        db.close()
+
+_seed_roles()
+
+
+# Seed platform superadmin from env vars (SUPERADMIN_EMAIL + SUPERADMIN_PASSWORD)
+def _seed_superadmin():
+    if not settings.SUPERADMIN_EMAIL or not settings.SUPERADMIN_PASSWORD:
+        return
+    from app.core.database import SessionLocal
+    from app.models.core import Tenant, TenantSettings, User
+    from app.core.security import get_password_hash
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter(
+            User.email == settings.SUPERADMIN_EMAIL
+        ).first()
+        if existing:
+            # Ensure they have superuser flag
+            if not existing.is_superuser:
+                existing.is_superuser = True
+                db.commit()
+            return
+
+        # Create a dedicated platform tenant for superadmin if none exists
+        platform_tenant = db.query(Tenant).filter(
+            Tenant.subdomain == "platform"
+        ).first()
+        if not platform_tenant:
+            from app.services.tenant import create_tenant_schema
+            platform_tenant = Tenant(
+                name="OmniFlow Platform",
+                schema_name="tenant_platform",
+                subdomain="platform",
+                is_active=True,
+            )
+            db.add(platform_tenant)
+            db.flush()
+            db.add(TenantSettings(tenant_id=platform_tenant.id))
+            db.commit()
+            db.refresh(platform_tenant)
+            try:
+                create_tenant_schema("tenant_platform")
+            except Exception as e:
+                print(f"[startup] Schema creation warning: {e}")
+
+        superadmin = User(
+            tenant_id=platform_tenant.id,
+            email=settings.SUPERADMIN_EMAIL,
+            hashed_password=get_password_hash(settings.SUPERADMIN_PASSWORD),
+            full_name="SuperAdmin",
+            is_superuser=True,
+            is_active=True,
+        )
+        db.add(superadmin)
+        db.commit()
+        print(f"[startup] Superadmin created: {settings.SUPERADMIN_EMAIL}")
+    finally:
+        db.close()
+
+_seed_superadmin()
+
+
+def _migrate_tenant_schemas():
+    """
+    Safe, idempotent migration: adds any missing columns to existing tenant schemas.
+    Runs on every startup — ALTER TABLE ... ADD COLUMN IF NOT EXISTS is a no-op if column exists.
+    """
+    import re
+    from app.core.database import SessionLocal, engine
+    from app.models.core import Tenant
+    from sqlalchemy import text
+    db = SessionLocal()
+    try:
+        tenants = db.query(Tenant).all()
+        migrations = [
+            "ALTER TABLE {schema}.conversations ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT TRUE",
+        ]
+        with engine.begin() as conn:
+            for tenant in tenants:
+                schema = tenant.schema_name
+                if not re.match(r'^[a-z0-9_]+$', schema):
+                    continue
+                for migration in migrations:
+                    conn.execute(text(migration.format(schema=schema)))
+        print(f"[startup] Schema migration complete ({len(tenants)} tenants)", flush=True)
+    except Exception as e:
+        print(f"[startup] Migration warning: {e}", flush=True)
+    finally:
+        db.close()
+
+_migrate_tenant_schemas()
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"

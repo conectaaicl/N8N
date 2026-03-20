@@ -23,8 +23,7 @@ const CHANNEL_LABEL: Record<string, string> = {
   web: 'Web Chat', webchat: 'Web Chat', tiktok: 'TikTok', email: 'Email',
 }
 
-// Simulated weekly data — replace with real API when available
-const WEEKLY = [
+const WEEKLY_EMPTY = [
   { day: 'Lun', leads: 0, conversaciones: 0 },
   { day: 'Mar', leads: 0, conversaciones: 0 },
   { day: 'Mié', leads: 0, conversaciones: 0 },
@@ -53,6 +52,12 @@ interface Stats {
   conversion_rate: number
 }
 
+interface WeeklyEntry {
+  day: string
+  leads: number
+  conversaciones: number
+}
+
 interface Conversation {
   id: number
   contact?: { id: number; name: string; phone?: string; lead_score?: number; intent?: string }
@@ -65,6 +70,7 @@ interface Conversation {
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [sources, setSources] = useState<{ source: string; count: number }[]>([])
+  const [weekly, setWeekly] = useState<WeeklyEntry[]>(WEEKLY_EMPTY)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loadingStats, setLoadingStats] = useState(true)
   const [greeting, setGreeting] = useState('Buenos días')
@@ -84,7 +90,11 @@ export default function DashboardPage() {
 
   useEffect(() => {
     tenantAPI.getDashboardStats()
-      .then((r) => { setStats(r.data.stats); setSources(r.data.source_distribution || []) })
+      .then((r) => {
+        setStats(r.data.stats)
+        setSources(r.data.source_distribution || [])
+        if (r.data.weekly_activity?.length) setWeekly(r.data.weekly_activity)
+      })
       .catch(console.error)
       .finally(() => setLoadingStats(false))
     conversationsAPI.list()
@@ -200,7 +210,7 @@ export default function DashboardPage() {
         <div className="bg-[#0d0d1a] border border-white/5 rounded-2xl p-5">
           <h3 className="text-sm font-semibold text-white mb-4">Actividad Semanal</h3>
           <ResponsiveContainer width="100%" height={160}>
-            <AreaChart data={WEEKLY} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
+            <AreaChart data={weekly} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
               <defs>
                 <linearGradient id="gLeads" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#7c3aed" stopOpacity={0.3}/>
@@ -214,7 +224,7 @@ export default function DashboardPage() {
               <Area type="monotone" dataKey="leads" stroke="#7c3aed" strokeWidth={2} fill="url(#gLeads)" name="Leads" />
             </AreaChart>
           </ResponsiveContainer>
-          <p className="text-[10px] text-slate-700 text-center mt-2">Los datos se poblarán con actividad real</p>
+          <p className="text-[10px] text-slate-700 text-center mt-2">Últimos 7 días</p>
         </div>
 
         {/* Quick actions */}

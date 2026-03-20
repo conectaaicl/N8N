@@ -21,8 +21,8 @@ const CHANNELS = [
 
 const PLANS = [
   { name: 'Starter',    price: '$29',  features: ['1,000 contactos', '5,000 mensajes/mes', 'WhatsApp + Web', 'IA básica', 'Soporte email'],                                       popular: false },
-  { name: 'Pro',        price: '$99',  features: ['10,000 contactos', '50,000 mensajes/mes', 'Todos los canales', 'n8n incluido', 'IA avanzada', 'Soporte prioritario'],          popular: true  },
-  { name: 'Enterprise', price: '$299', features: ['Ilimitado', 'Mensajes ilimitados', 'White-label total', 'Instancias dedicadas', 'SLA 99.9%', 'Manager dedicado'],              popular: false },
+  { name: 'Pro',        price: '$79',  features: ['10,000 contactos', '50,000 mensajes/mes', 'Todos los canales', 'n8n incluido', 'IA avanzada', 'Soporte prioritario'],          popular: true  },
+  { name: 'Enterprise', price: '$199', features: ['Ilimitado', 'Mensajes ilimitados', 'White-label total', 'Instancias dedicadas', 'SLA 99.9%', 'Manager dedicado'],              popular: false },
 ]
 
 export default function LandingPage() {

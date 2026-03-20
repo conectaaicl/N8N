@@ -16,7 +16,7 @@ const PLANS = [
   {
     id: 2,
     name: 'Pro',
-    price: 99,
+    price: 79,
     desc: 'Escala tus ventas con IA avanzada y mayores límites.',
     features: ['10,000 contactos', '50,000 mensajes/mes', 'Todos los canales', 'n8n incluido', 'IA avanzada', 'Soporte prioritario'],
     color: '#7c3aed',
@@ -25,7 +25,7 @@ const PLANS = [
   {
     id: 3,
     name: 'Enterprise',
-    price: 299,
+    price: 199,
     desc: 'Orquestación total para operaciones a gran escala.',
     features: ['Ilimitado', 'Mensajes ilimitados', 'White-label total', 'Instancias dedicadas', 'SLA 99.9%', 'Manager dedicado'],
     color: '#059669',

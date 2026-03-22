@@ -1,0 +1,335 @@
+{
+  "id": "WA-IA-PRO-001",
+  "name": "WhatsApp IA PRO - ConectaAI",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "id": "wa-verify-get",
+      "name": "🔐 Verificación Meta (GET)",
+      "webhookId": "wa-verify-001"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.query['hub.challenge'] }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [280, 0],
+      "id": "respond-challenge",
+      "name": "✅ Responder hub.challenge"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 400],
+      "id": "wa-post",
+      "name": "📱 Recibir Mensaje WhatsApp",
+      "webhookId": "wa-messages-001"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\" }",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [280, 240],
+      "id": "respond-200",
+      "name": "✅ Responder 200 a Meta"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-has-msg",
+              "leftValue": "={{ $json.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.type }}",
+              "rightValue": "text",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [280, 560],
+      "id": "if-is-text",
+      "name": "🔍 ¿Es mensaje de texto?"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "phone",           "value": "={{ $json.body.entry[0].changes[0].value.messages[0].from }}", "type": "string" },
+            { "id": "2", "name": "message",         "value": "={{ $json.body.entry[0].changes[0].value.messages[0].text.body }}", "type": "string" },
+            { "id": "3", "name": "phone_number_id", "value": "={{ $json.body.entry[0].changes[0].value.metadata.phone_number_id }}", "type": "string" },
+            { "id": "4", "name": "wamid",           "value": "={{ $json.body.entry[0].changes[0].value.messages[0].id }}", "type": "string" },
+            { "id": "5", "name": "contact_name",    "value": "={{ $json.body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || 'Cliente' }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [560, 560],
+      "id": "extract-fields",
+      "name": "📋 Extraer Datos del Mensaje"
+    },
+    {
+      "parameters": {
+        "jsCode": "const apiSecret = 'n8n_omniflow_bb381df03a4fa5e2706c0e11fd468468';\nconst baseUrl = 'https://osw.conectaai.cl/api/v1';\nconst phoneNumberId = $input.item.json.phone_number_id;\n\n// Fallback — se usa si el tenant no tiene config guardada\nlet config = {\n  subdomain: 'osw',\n  whatsapp_token: null,\n  system_prompt: `Eres el Asistente de Ventas IA de TerraBlinds. Responde SIEMPRE en español chileno.\\n\\n⚠️ REGLAS ABSOLUTAS:\\n1. TODOS los precios son en PESOS CHILENOS (CLP). Usa el símbolo $. JAMÁS uses euros, dólares u otra moneda.\\n2. Responde máximo 4-5 líneas.\\n3. Si el cliente da medidas, calcula el precio de inmediato.\\n4. SOLO ofrece productos del catálogo de TerraBlinds.\\n\\n== CATÁLOGO Y PRECIOS (por m²) ==\\nRoller Blackout $38.000/m² | Roller Screen $38.000/m² | Roller Sunscreen $38.000/m²\\nRoller Duo Traslúcido $45.000/m² | Roller Duo Blackout $45.000/m² | Roller Dual $56.000/m²\\nPersianas, Toldos, Cierres de Terraza: precio por cotización según medidas\\n\\nCÁLCULO: Ancho(m) × Alto(m) × precio/m² | Mínimo 1m² | Instalación gratis en RM\\nEjemplo: 1.5m × 2.0m Blackout = 3m² × $38.000 = $114.000\\n\\nWeb: terrablinds.cl | Cotizar: terrablinds.cl/quote | WhatsApp: +56935318909`,\n  ai_provider: 'groq',\n  ai_model: 'llama-3.3-70b-versatile',\n};\n\ntry {\n  const resp = await $http.request({\n    method: 'GET',\n    url: `${baseUrl}/internal/whatsapp/tenant-config?phone_number_id=${encodeURIComponent(phoneNumberId)}`,\n    headers: { 'X-API-Secret': apiSecret },\n  });\n  const data = resp && (resp.body || resp.data || resp);\n  if (data && data.subdomain) {\n    config = {\n      subdomain: data.subdomain,\n      whatsapp_token: data.whatsapp_token,\n      system_prompt: data.system_prompt || config.system_prompt,\n      ai_provider: data.ai_provider || 'groq',\n      ai_model: data.ai_model || 'llama-3.3-70b-versatile',\n    };\n  }\n} catch(e) {\n  // usa fallback\n}\n\nreturn [{ json: { ...($input.item.json), ...config, api_secret: apiSecret, base_url: baseUrl } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 560],
+      "id": "fetch-ai-config",
+      "name": "⚙️ Cargar Config IA desde OSW"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ─────────────────────────────────────────────────────────────────\n// MEMORIA DE CONVERSACIÓN por número de teléfono\n// Almacena los últimos 10 mensajes (5 intercambios) por usuario\n// ─────────────────────────────────────────────────────────────────\nconst staticData = $getWorkflowStaticData('global');\nconst phone = $json.phone;\nconst systemPrompt = $json.system_prompt;\nconst userMessage = $json.message;\n\nif (!staticData.conversations) staticData.conversations = {};\nconst history = staticData.conversations[phone] || [];\n\n// Últimos 10 mensajes para contexto\nconst recentHistory = history.slice(-10);\n\n// Array de mensajes para la IA\nconst messages = [\n  { role: 'system', content: systemPrompt },\n  ...recentHistory,\n  { role: 'user', content: userMessage }\n];\n\nreturn [{ json: { ...($input.item.json), messages_for_ai: messages, history_count: recentHistory.length } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 560],
+      "id": "get-history",
+      "name": "📚 Cargar Historial (Memoria)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": false, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-provider",
+              "leftValue": "={{ $json.ai_provider }}",
+              "rightValue": "groq",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1400, 560],
+      "id": "switch-provider",
+      "name": "🔀 Seleccionar Proveedor IA"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.ai_model || 'gpt-4o-mini', messages: $json.messages_for_ai, max_tokens: 800, temperature: 0.7 }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 400],
+      "id": "call-openai",
+      "name": "🤖 OpenAI",
+      "credentials": {
+        "openAiApi": { "id": "evBQV5HEn51mwT8u", "name": "OpenAi account" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "groqApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.ai_model || 'llama-3.3-70b-versatile', messages: $json.messages_for_ai, max_tokens: 800, temperature: 0.7 }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, 720],
+      "id": "call-groq",
+      "name": "⚡ Groq (Llama)",
+      "credentials": {
+        "groqApi": { "id": "CcugLe8HO9m5mbSc", "name": "Groq account" }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "ai_response",     "value": "={{ $json.choices[0].message.content }}", "type": "string" },
+            { "id": "2", "name": "phone",            "value": "={{ $('📋 Extraer Datos del Mensaje').item.json.phone }}", "type": "string" },
+            { "id": "3", "name": "phone_number_id",  "value": "={{ $('📋 Extraer Datos del Mensaje').item.json.phone_number_id }}", "type": "string" },
+            { "id": "4", "name": "wamid",            "value": "={{ $('📋 Extraer Datos del Mensaje').item.json.wamid }}", "type": "string" },
+            { "id": "5", "name": "user_message",     "value": "={{ $('📋 Extraer Datos del Mensaje').item.json.message }}", "type": "string" },
+            { "id": "6", "name": "subdomain",        "value": "={{ $('⚙️ Cargar Config IA desde OSW').item.json.subdomain }}", "type": "string" },
+            { "id": "7", "name": "api_secret",       "value": "={{ $('⚙️ Cargar Config IA desde OSW').item.json.api_secret }}", "type": "string" },
+            { "id": "8", "name": "whatsapp_token",   "value": "={{ $('⚙️ Cargar Config IA desde OSW').item.json.whatsapp_token }}", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1960, 560],
+      "id": "extract-response",
+      "name": "💬 Extraer Respuesta IA"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Actualizar memoria de conversación con el nuevo intercambio\nconst staticData = $getWorkflowStaticData('global');\nconst phone = $json.phone;\n\nif (!staticData.conversations) staticData.conversations = {};\nconst history = staticData.conversations[phone] || [];\n\nhistory.push({ role: 'user',      content: $json.user_message });\nhistory.push({ role: 'assistant', content: $json.ai_response });\n\n// Máximo 20 mensajes en memoria (10 intercambios)\nstaticData.conversations[phone] = history.slice(-20);\n\nreturn [{ json: $input.item.json }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2240, 560],
+      "id": "save-history",
+      "name": "💾 Guardar en Memoria"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.whatsapp_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', status: 'read', message_id: $json.wamid }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2520, 400],
+      "id": "mark-read",
+      "name": "👁️ Marcar como Leído (✓✓)",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $json.phone_number_id }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.whatsapp_token }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.phone, type: 'text', text: { body: $json.ai_response, preview_url: false } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2520, 720],
+      "id": "send-whatsapp",
+      "name": "📤 Enviar Respuesta WhatsApp"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://osw.conectaai.cl/api/v1/internal/whatsapp/inject",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-API-Secret", "value": "={{ $json.api_secret }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ subdomain: $json.subdomain, phone: $json.phone, content: $json.ai_response, sender_type: 'bot' }) }}",
+        "options": { "response": { "response": { "responseFormat": "json" } } }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2800, 560],
+      "id": "log-crm",
+      "name": "🗂️ Registrar en OmniFlow CRM"
+    }
+  ],
+  "connections": {
+    "🔐 Verificación Meta (GET)": {
+      "main": [[ { "node": "✅ Responder hub.challenge", "type": "main", "index": 0 } ]]
+    },
+    "📱 Recibir Mensaje WhatsApp": {
+      "main": [
+        [
+          { "node": "✅ Responder 200 a Meta", "type": "main", "index": 0 },
+          { "node": "🔍 ¿Es mensaje de texto?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "🔍 ¿Es mensaje de texto?": {
+      "main": [
+        [ { "node": "📋 Extraer Datos del Mensaje", "type": "main", "index": 0 } ],
+        []
+      ]
+    },
+    "📋 Extraer Datos del Mensaje": {
+      "main": [[ { "node": "⚙️ Cargar Config IA desde OSW", "type": "main", "index": 0 } ]]
+    },
+    "⚙️ Cargar Config IA desde OSW": {
+      "main": [[ { "node": "📚 Cargar Historial (Memoria)", "type": "main", "index": 0 } ]]
+    },
+    "📚 Cargar Historial (Memoria)": {
+      "main": [[ { "node": "🔀 Seleccionar Proveedor IA", "type": "main", "index": 0 } ]]
+    },
+    "🔀 Seleccionar Proveedor IA": {
+      "main": [
+        [ { "node": "⚡ Groq (Llama)", "type": "main", "index": 0 } ],
+        [ { "node": "🤖 OpenAI", "type": "main", "index": 0 } ]
+      ]
+    },
+    "🤖 OpenAI": {
+      "main": [[ { "node": "💬 Extraer Respuesta IA", "type": "main", "index": 0 } ]]
+    },
+    "⚡ Groq (Llama)": {
+      "main": [[ { "node": "💬 Extraer Respuesta IA", "type": "main", "index": 0 } ]]
+    },
+    "💬 Extraer Respuesta IA": {
+      "main": [[ { "node": "💾 Guardar en Memoria", "type": "main", "index": 0 } ]]
+    },
+    "💾 Guardar en Memoria": {
+      "main": [
+        [
+          { "node": "👁️ Marcar como Leído (✓✓)", "type": "main", "index": 0 },
+          { "node": "📤 Enviar Respuesta WhatsApp", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "📤 Enviar Respuesta WhatsApp": {
+      "main": [[ { "node": "🗂️ Registrar en OmniFlow CRM", "type": "main", "index": 0 } ]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
+}

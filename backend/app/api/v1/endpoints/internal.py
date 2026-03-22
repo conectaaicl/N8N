@@ -7,8 +7,10 @@ Endpoints:
   POST /internal/contact/upsert                         — create/update contact
   POST /internal/deal/upsert                            — create or move deal
   POST /internal/webchat/inject                         — inject bot message into chat
+  POST /internal/whatsapp/inject                        — inject bot message into whatsapp conversation
   POST /internal/quote/save                             — save generated quote
   GET  /internal/contact/list?subdomain=osw&limit=50   — recent contacts
+  GET  /internal/ai-config?subdomain=osw                — get AI config (system_prompt, model, provider)
 """
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Header
@@ -18,7 +20,7 @@ from typing import Optional
 
 from app.core.config import settings
 from app.core.database import get_db, tenant_db_session
-from app.models.core import Tenant
+from app.models.core import Tenant, TenantSettings
 from app.models.tenant import Contact, Conversation, Message, Deal, PipelineStage
 
 router = APIRouter()
@@ -319,3 +321,104 @@ def list_recent_contacts(
             }
             for c in contacts
         ]
+
+
+# ── AI Config (para workflow WhatsApp IA PRO) ─────────────────────────────────
+
+@router.get("/ai-config")
+def get_ai_config(
+    subdomain: str,
+    db: Session = Depends(get_db),
+    _: str = Depends(_require_secret),
+):
+    """Returns AI configuration for the tenant (system prompt, model, provider).
+    Safe to call from n8n — never exposes API keys or tokens."""
+    tenant = _get_tenant_by_subdomain(subdomain, db)
+    s = db.query(TenantSettings).filter(TenantSettings.tenant_id == tenant.id).first()
+    if not s:
+        return {
+            "system_prompt": "Eres un asistente virtual amable y profesional. Responde en español.",
+            "ai_provider": "groq",
+            "ai_model": "llama-3.3-70b-versatile",
+        }
+    return {
+        "system_prompt": s.webchat_system_prompt or "Eres un asistente virtual amable y profesional. Responde en español.",
+        "ai_provider": s.ai_provider or "groq",
+        "ai_model": s.ai_model or "llama-3.3-70b-versatile",
+    }
+
+
+@router.get("/whatsapp/tenant-config")
+def get_whatsapp_tenant_config(
+    phone_number_id: str,
+    db: Session = Depends(get_db),
+    _: str = Depends(_require_secret),
+):
+    """Returns full WhatsApp + AI config for a tenant identified by phone_number_id.
+    Used by n8n to route multi-tenant WhatsApp messages automatically."""
+    s = db.query(TenantSettings).filter(
+        TenantSettings.whatsapp_phone_id == phone_number_id
+    ).first()
+    if not s:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No tenant configured for phone_number_id '{phone_number_id}'"
+        )
+    tenant = db.query(Tenant).filter(Tenant.id == s.tenant_id).first()
+    return {
+        "subdomain": tenant.subdomain if tenant else "unknown",
+        "whatsapp_token": s.whatsapp_access_token,
+        "whatsapp_phone_id": s.whatsapp_phone_id,
+        "whatsapp_number": s.whatsapp_number,
+        "system_prompt": s.webchat_system_prompt or "Eres un asistente virtual amable y profesional. Responde en español.",
+        "ai_provider": s.ai_provider or "groq",
+        "ai_model": s.ai_model or "llama-3.3-70b-versatile",
+    }
+
+
+# ── WhatsApp message inject (logs bot responses to WhatsApp conversations) ─────
+
+class InjectWhatsApp(BaseModel):
+    subdomain: str
+    phone: str                # contact phone number (WhatsApp from field)
+    content: str
+    sender_type: str = "bot"  # bot | human
+
+
+@router.post("/whatsapp/inject")
+def inject_whatsapp_message(
+    payload: InjectWhatsApp,
+    db: Session = Depends(get_db),
+    _: str = Depends(_require_secret),
+):
+    """Inject a bot/human message into a WhatsApp conversation in OmniFlow CRM."""
+    tenant = _get_tenant_by_subdomain(payload.subdomain, db)
+    with tenant_db_session(tenant.schema_name) as tdb:
+        contact = tdb.query(Contact).filter(Contact.phone == payload.phone).first()
+        if not contact:
+            return {"injected": False, "reason": "contact_not_found"}
+
+        conv = (
+            tdb.query(Conversation)
+            .filter(
+                Conversation.contact_id == contact.id,
+                Conversation.channel == "whatsapp",
+            )
+            .order_by(Conversation.updated_at.desc())
+            .first()
+        )
+        if not conv:
+            return {"injected": False, "reason": "conversation_not_found"}
+
+        msg = Message(
+            conversation_id=conv.id,
+            sender_type=payload.sender_type,
+            content=payload.content,
+            timestamp=datetime.utcnow(),
+        )
+        tdb.add(msg)
+        conv.last_message = f"[BOT] {payload.content[:80]}"
+        conv.updated_at = datetime.utcnow()
+        tdb.commit()
+
+        return {"injected": True, "conversation_id": conv.id, "message_id": msg.id}

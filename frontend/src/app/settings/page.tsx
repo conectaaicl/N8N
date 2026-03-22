@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { tenantAPI, authAPI } from '@/lib/api'
-import { Save, Palette, Globe, Mail, RefreshCw, CheckCircle2, Bot, Key, Lock, ShieldCheck } from 'lucide-react'
+import { Save, Palette, Globe, Mail, RefreshCw, CheckCircle2, Bot, Key, Lock, ShieldCheck, MessageCircle, Send } from 'lucide-react'
 
 function Field({ label, value, onChange, placeholder, type = 'text', mono = false }: {
   label: string; value: string; onChange: (v: string) => void
@@ -91,6 +91,15 @@ export default function SettingsPage() {
   const [pwdSaved, setPwdSaved] = useState(false)
   const [pwdError, setPwdError] = useState('')
 
+  // WhatsApp Business
+  const [waPhoneId, setWaPhoneId] = useState('')
+  const [waToken, setWaToken] = useState('')
+  const [waNumber, setWaNumber] = useState('')
+  const [waTestTo, setWaTestTo] = useState('')
+  const [waTesting, setWaTesting] = useState(false)
+  const [waTestResult, setWaTestResult] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [showWaToken, setShowWaToken] = useState(false)
+
   // AI
   const [botName, setBotName] = useState('')
   const [greeting, setGreeting] = useState('')
@@ -113,6 +122,9 @@ export default function SettingsPage() {
         setGreeting(s.webchat_greeting || '')
         setAiModel(s.ai_model || 'claude-sonnet-4-20250514')
         setSystemPrompt(s.webchat_system_prompt || '')
+        setWaPhoneId(s.whatsapp_phone_id || '')
+        setWaNumber(s.whatsapp_number || '')
+        // token not returned by API for security — only set if non-empty indicator
       })
       .catch(console.error)
       .finally(() => setLoading(false))
@@ -126,8 +138,11 @@ export default function SettingsPage() {
         support_email: supportEmail, support_phone: supportPhone,
         webchat_bot_name: botName, webchat_greeting: greeting,
         ai_model: aiModel, webchat_system_prompt: systemPrompt,
+        whatsapp_phone_id: waPhoneId || null,
+        whatsapp_number: waNumber || null,
       }
       if (aiKey.trim()) payload.openai_api_key = aiKey.trim()
+      if (waToken.trim()) payload.whatsapp_access_token = waToken.trim()
       await tenantAPI.updateSettings(payload)
       setSaved(true); setAiKey('')
       setTimeout(() => setSaved(false), 3000)
@@ -148,6 +163,18 @@ export default function SettingsPage() {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setPwdError(msg || 'Error al cambiar la contraseña')
     } finally { setPwdSaving(false) }
+  }
+
+  const handleTestWhatsapp = async () => {
+    if (!waTestTo.trim()) return
+    setWaTesting(true); setWaTestResult(null)
+    try {
+      await tenantAPI.testWhatsapp(waTestTo.trim())
+      setWaTestResult({ ok: true, msg: 'Mensaje enviado correctamente' })
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setWaTestResult({ ok: false, msg: msg || 'Error al enviar el mensaje' })
+    } finally { setWaTesting(false) }
   }
 
   // Find current model info
@@ -363,6 +390,75 @@ export default function SettingsPage() {
             <p className="text-xs text-slate-600 mt-1">{systemPrompt.length} / 2000 caracteres · Define comportamiento, productos, precios y personalidad.</p>
           </div>
 
+        </div>
+      </div>
+
+      {/* WhatsApp Business API */}
+      <div className="bg-[#0d0d1a] border border-white/5 rounded-2xl p-5">
+        <div className="flex items-center gap-2 mb-5 pb-4 border-b border-white/5">
+          <MessageCircle size={15} className="text-emerald-400" />
+          <h3 className="font-semibold text-white text-sm">WhatsApp Business API</h3>
+          <span className="ml-auto text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">Meta Cloud API</span>
+        </div>
+        <div className="space-y-4">
+          <p className="text-xs text-slate-500">Configura tu número oficial de WhatsApp Business para recibir y responder mensajes con IA.</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Phone Number ID" value={waPhoneId} onChange={setWaPhoneId}
+              placeholder="123456789012345" mono />
+            <Field label="Número WhatsApp (con código de país)" value={waNumber} onChange={setWaNumber}
+              placeholder="+56912345678" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5 flex items-center gap-1">
+              <Key size={11} />
+              Access Token (Permanent System User Token)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type={showWaToken ? 'text' : 'password'}
+                value={waToken}
+                onChange={e => setWaToken(e.target.value)}
+                placeholder="EAAOxxxxxxxx... (vacío = mantener actual)"
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/40 font-mono"
+              />
+              <button onClick={() => setShowWaToken(v => !v)}
+                className="px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-xs text-slate-400 hover:text-white transition-colors">
+                {showWaToken ? 'Ocultar' : 'Mostrar'}
+              </button>
+            </div>
+            <p className="text-xs text-slate-600 mt-1">
+              Genera un token permanente en{' '}
+              <a href="https://business.facebook.com" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300">
+                Meta Business Manager
+              </a>
+              {' '}→ Usuarios del sistema → Generar token.
+            </p>
+          </div>
+
+          {/* Test */}
+          <div className="bg-white/3 border border-white/5 rounded-xl p-4">
+            <p className="text-xs font-medium text-slate-400 mb-3">Probar envío (guarda primero)</p>
+            <div className="flex gap-2">
+              <input
+                value={waTestTo}
+                onChange={e => setWaTestTo(e.target.value)}
+                placeholder="+56912345678"
+                className="flex-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500/40 font-mono"
+              />
+              <button onClick={handleTestWhatsapp} disabled={waTesting || !waTestTo.trim()}
+                className="flex items-center gap-2 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-medium px-4 py-2.5 rounded-xl text-xs disabled:opacity-40 disabled:cursor-not-allowed transition-all whitespace-nowrap">
+                {waTesting ? <RefreshCw size={11} className="animate-spin" /> : <Send size={11} />}
+                {waTesting ? 'Enviando...' : 'Enviar prueba'}
+              </button>
+            </div>
+            {waTestResult && (
+              <p className={`text-xs mt-2 ${waTestResult.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                {waTestResult.ok ? '✓' : '✗'} {waTestResult.msg}
+              </p>
+            )}
+          </div>
         </div>
       </div>
 

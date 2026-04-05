@@ -127,6 +127,17 @@ def _migrate_tenant_schemas():
     db = SessionLocal()
     try:
         tenants = db.query(Tenant).all()
+        # Public table migrations (no schema prefix)
+        public_migrations = [
+            "ALTER TABLE public.users ADD COLUMN IF NOT EXISTS role_id INTEGER REFERENCES public.roles(id)",
+        ]
+        with engine.begin() as conn:
+            for m in public_migrations:
+                try:
+                    conn.execute(text(m))
+                except Exception:
+                    pass
+
         migrations = [
             "ALTER TABLE {schema}.conversations ADD COLUMN IF NOT EXISTS bot_active BOOLEAN DEFAULT TRUE",
             "ALTER TABLE {schema}.conversations ADD COLUMN IF NOT EXISTS notes TEXT",

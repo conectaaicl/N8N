@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "*"
     WHATSAPP_VERIFY_TOKEN: str = "omniflow_verify_token"
     N8N_API_SECRET: str = ""
+    META_WEBHOOK_SECRET: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None
 
     # Platform superadmin bootstrap (set in .env to auto-create on first boot)
     SUPERADMIN_EMAIL: Optional[str] = None

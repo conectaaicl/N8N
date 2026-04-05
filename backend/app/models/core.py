@@ -114,9 +114,11 @@ class User(Base):
     full_name = Column(String)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
+    role_id = Column(Integer, ForeignKey("roles.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     tenant = relationship("Tenant", back_populates="users")
+    role = relationship("Role", foreign_keys=[role_id])
 
 
 class Role(Base):

@@ -11,7 +11,7 @@ from email.mime.text import MIMEText
 
 async def send_whatsapp(phone_number_id: str, access_token: str, to: str, message: str) -> bool:
     """Send a WhatsApp message via Meta Cloud API."""
-    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+    url = f"https://graph.facebook.com/v20.0/{phone_number_id}/messages"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -34,7 +34,7 @@ async def send_whatsapp(phone_number_id: str, access_token: str, to: str, messag
 
 async def send_whatsapp_image(phone_number_id: str, access_token: str, to: str, image_url: str, caption: str = "") -> bool:
     """Send a WhatsApp image message via Meta Cloud API."""
-    url = f"https://graph.facebook.com/v18.0/{phone_number_id}/messages"
+    url = f"https://graph.facebook.com/v20.0/{phone_number_id}/messages"
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     payload = {
         "messaging_product": "whatsapp",
@@ -54,18 +54,39 @@ async def send_whatsapp_image(phone_number_id: str, access_token: str, to: str, 
 
 # ── Instagram DM ────────────────────────────────────────────────────────────
 
-async def send_instagram(page_access_token: str, recipient_id: str, message: str) -> bool:
-    """Send an Instagram Direct Message via Meta Graph API."""
-    url = "https://graph.facebook.com/v18.0/me/messages"
-    headers = {"Authorization": f"Bearer {page_access_token}"}
+async def send_instagram(access_token: str, recipient_id: str, message: str, ig_account_id: str = "me") -> bool:
+    """Send an Instagram Direct Message.
+
+    Uses graph.instagram.com (for IGAAN... tokens from Instagram Graph API).
+    Falls back to graph.facebook.com if the primary call fails (for EAA... Page tokens).
+    """
+    headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
     payload = {
         "recipient": {"id": recipient_id},
         "message": {"text": message},
+        "messaging_type": "RESPONSE",
     }
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.post(url, json=payload, headers=headers)
-            return r.status_code == 200
+            # Primary: Instagram Graph API (works with IGAAN... tokens)
+            r = await client.post(
+                "https://graph.instagram.com/v20.0/me/messages",
+                headers=headers,
+                json=payload,
+            )
+            if r.status_code == 200:
+                return True
+            print(f"[Instagram IG API {r.status_code}] {r.text[:200]}")
+            # Fallback: Facebook Graph API (works with EAA... Page tokens)
+            r2 = await client.post(
+                f"https://graph.facebook.com/v20.0/{ig_account_id}/messages",
+                headers=headers,
+                json=payload,
+            )
+            if r2.status_code == 200:
+                return True
+            print(f"[Instagram FB fallback {r2.status_code}] {r2.text[:200]}")
+            return False
     except Exception as e:
         print(f"[Instagram send error] {e}")
         return False
@@ -75,15 +96,18 @@ async def send_instagram(page_access_token: str, recipient_id: str, message: str
 
 async def send_facebook(page_access_token: str, psid: str, message: str) -> bool:
     """Send a Facebook Messenger message via Meta Graph API."""
-    url = "https://graph.facebook.com/v18.0/me/messages"
-    headers = {"Authorization": f"Bearer {page_access_token}"}
+    url = "https://graph.facebook.com/v20.0/me/messages"
+    headers = {"Authorization": f"Bearer {page_access_token}", "Content-Type": "application/json"}
     payload = {
         "recipient": {"id": psid},
         "message": {"text": message},
+        "messaging_type": "RESPONSE",
     }
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.post(url, json=payload, headers=headers)
+            if r.status_code != 200:
+                print(f"[Facebook send {r.status_code}] {r.text[:200]}")
             return r.status_code == 200
     except Exception as e:
         print(f"[Facebook send error] {e}")

@@ -96,3 +96,17 @@ class Deal(Base):
 
     contact = relationship("Contact", back_populates="deals")
     stage = relationship("PipelineStage", back_populates="deals")
+
+
+class Broadcast(Base):
+    __tablename__ = "broadcasts"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    channel = Column(String)           # whatsapp | instagram | facebook
+    message = Column(Text)
+    status = Column(String, default="draft")  # draft | sending | done | failed
+    sent_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    filter_tag = Column(String, nullable=True)   # optional contact tag filter
+    created_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime, nullable=True)

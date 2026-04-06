@@ -506,11 +506,29 @@ async def connect_telegram(
     s.telegram_bot_token = body.bot_token
     s.telegram_bot_username = bot_username
     db.commit()
+
+    # Register webhook so Telegram sends updates to our backend
+    from app.core.config import settings as app_settings
+    webhook_url = f"{app_settings.BACKEND_URL}/api/v1/webhooks/telegram"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            wr = await client.post(
+                f"https://api.telegram.org/bot{body.bot_token}/setWebhook",
+                json={"url": webhook_url, "allowed_updates": ["message"]},
+            )
+            wh_ok = wr.status_code == 200 and wr.json().get("ok")
+            if not wh_ok:
+                print(f"[Telegram setWebhook] {wr.text[:200]}")
+    except Exception as e:
+        print(f"[Telegram setWebhook error] {e}")
+        wh_ok = False
+
     return {
         "status": "connected",
         "message": f"Bot {'@' + bot_username if bot_username else ''} conectado correctamente.",
         "bot_username": bot_username,
         "bot_name": bot_first_name,
+        "webhook_registered": wh_ok,
     }
 
 

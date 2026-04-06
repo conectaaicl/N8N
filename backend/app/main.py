@@ -150,6 +150,18 @@ def _migrate_tenant_schemas():
                 content TEXT,
                 created_at TIMESTAMP DEFAULT NOW()
             )""",
+            """CREATE TABLE IF NOT EXISTS {schema}.broadcasts (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR,
+                channel VARCHAR,
+                message TEXT,
+                status VARCHAR DEFAULT 'draft',
+                sent_count INTEGER DEFAULT 0,
+                failed_count INTEGER DEFAULT 0,
+                filter_tag VARCHAR,
+                created_at TIMESTAMP DEFAULT NOW(),
+                sent_at TIMESTAMP
+            )""",
         ]
         with engine.begin() as conn:
             for tenant in tenants:

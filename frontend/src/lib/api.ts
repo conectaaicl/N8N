@@ -129,6 +129,34 @@ export const adminAPI = {
     api.post('/admin/tenants', null, { params: data }),
 }
 
+// ── Broadcasts ───────────────────────────────────────────────
+export const broadcastsAPI = {
+  list: () => api.get('/broadcasts/'),
+  create: (data: { name: string; channel: string; message: string; filter_tag?: string | null }) =>
+    api.post('/broadcasts/', data),
+  send: (id: number) => api.post(`/broadcasts/${id}/send`),
+  remove: (id: number) => api.delete(`/broadcasts/${id}`),
+}
+
+// ── Channels ─────────────────────────────────────────────────
+export const channelsAPI = {
+  status: () => api.get('/channels/status'),
+  connectInstagram: (data: { page_id: string; access_token: string; verify_token?: string }) =>
+    api.post('/channels/instagram', data),
+  disconnectInstagram: () => api.delete('/channels/instagram'),
+  connectFacebook: (data: { page_id: string; access_token: string; verify_token?: string }) =>
+    api.post('/channels/facebook', data),
+  disconnectFacebook: () => api.delete('/channels/facebook'),
+  connectTelegram: (data: { bot_token: string; bot_username?: string }) =>
+    api.post('/channels/telegram', data),
+  disconnectTelegram: () => api.delete('/channels/telegram'),
+  connectWhatsappManual: (data: { phone_number_id: string; waba_id: string; access_token: string; phone_number?: string }) =>
+    api.post('/channels/whatsapp/manual', data),
+  disconnectWhatsapp: () => api.delete('/channels/whatsapp'),
+  embeddedSignup: (data: { code: string; phone_number_id?: string; waba_id?: string }) =>
+    api.post('/channels/whatsapp/embedded-signup', data),
+}
+
 // ── Legacy compat (used by BrandingProvider) ─────────────────
 export const getPublicInfo = () => tenantAPI.getPublicInfo().then((r) => r.data)
 export const updateSettings = (data: Record<string, unknown>) =>

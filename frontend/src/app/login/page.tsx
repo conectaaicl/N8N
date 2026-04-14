@@ -13,6 +13,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Branding
+  const [logoUrl, setLogoUrl] = useState('')
+  const [brandName, setBrandName] = useState('OmniFlow')
+
   // Forgot password state
   const [showForgot, setShowForgot] = useState(false)
   const [forgotEmail, setForgotEmail] = useState('')
@@ -24,6 +28,15 @@ export default function LoginPage() {
     if (localStorage.getItem('omniflow_token')) {
       router.push('/dashboard')
     }
+    // Fetch public branding (no auth needed)
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+    fetch(`${apiUrl}/tenants/public-info`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.name) setBrandName(d.name)
+        if (d?.settings?.logo_url) setLogoUrl(d.settings.logo_url)
+      })
+      .catch(() => {})
   }, [router])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -85,13 +98,24 @@ export default function LoginPage() {
       <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-600 to-purple-500 flex items-center justify-center shadow-2xl shadow-violet-500/40">
-              <Wifi size={24} className="text-white" />
-            </div>
-            <span className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-purple-300 bg-clip-text text-transparent">
-              OmniFlow
-            </span>
+          <div className="flex items-center justify-center mb-4">
+            {logoUrl ? (
+              <img
+                src={logoUrl}
+                alt={brandName}
+                className="object-contain"
+                style={{ maxHeight: 80, maxWidth: 220 }}
+              />
+            ) : (
+              <div className="inline-flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-violet-600 to-purple-500 flex items-center justify-center shadow-2xl shadow-violet-500/40">
+                  <Wifi size={24} className="text-white" />
+                </div>
+                <span className="text-3xl font-bold bg-gradient-to-r from-violet-400 to-purple-300 bg-clip-text text-transparent">
+                  {brandName}
+                </span>
+              </div>
+            )}
           </div>
           <p className="text-slate-400 text-sm">Ingresa a tu panel de control</p>
         </div>

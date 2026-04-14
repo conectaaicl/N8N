@@ -84,6 +84,8 @@ export const conversationsAPI = {
   getWhatsappTemplates: () => api.get('/conversations/whatsapp-templates'),
   sendWhatsappTemplate: (data: { conversation_id: number; template_name: string; language_code?: string; components?: unknown[] }) =>
     api.post('/conversations/whatsapp-templates/send', data),
+  sendTemplateToNumber: (data: { phone_number: string; template_name: string; language_code?: string }) =>
+    api.post('/conversations/whatsapp-templates/send-to-number', data),
   importContacts: (file: File) => {
     const form = new FormData()
     form.append('file', file)
@@ -128,6 +130,8 @@ export const adminAPI = {
   getTenants: () => api.get('/admin/tenants'),
   getStats: () => api.get('/admin/stats'),
   getPlans: () => api.get('/admin/plans'),
+  updatePlan: (id: number, data: { name?: string; price?: number; description?: string; features?: Record<string, unknown> }) =>
+    api.patch(`/admin/plans/${id}`, data),
   toggleTenant: (id: number) => api.patch(`/admin/tenants/${id}/toggle`),
   createTenant: (data: { name: string; subdomain: string; admin_email: string; password: string }) =>
     api.post('/admin/tenants', null, { params: data }),

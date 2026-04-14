@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -146,3 +148,43 @@ def create_plan(name: str, price: float, db: Session = Depends(get_db), _: User 
     db.commit()
     db.refresh(plan)
     return plan
+
+
+class PlanUpdate(BaseModel):
+    name: Optional[str] = None
+    price: Optional[float] = None
+    description: Optional[str] = None
+    features: Optional[dict] = None
+
+
+@router.patch("/plans/{plan_id}")
+def update_plan(
+    plan_id: int,
+    payload: PlanUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superuser),
+):
+    plan = db.query(Plan).filter(Plan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if payload.name is not None:
+        plan.name = payload.name
+    if payload.price is not None:
+        plan.price = payload.price
+    if payload.features is not None:
+        plan.features = payload.features
+    if payload.description is not None:
+        # Store description inside features dict
+        current = dict(plan.features or {})
+        current["description"] = payload.description
+        plan.features = current
+    db.add(plan)
+    db.commit()
+    db.refresh(plan)
+    return plan
+
+
+@router.get("/plans/public")
+def list_plans_public(db: Session = Depends(get_db)):
+    """Public plan listing — no auth required."""
+    return db.query(Plan).order_by(Plan.id).all()

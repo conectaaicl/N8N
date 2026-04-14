@@ -72,7 +72,7 @@ export default function TeamPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
-  const [createForm, setCreateForm] = useState({ full_name: '', email: '', password: '', role_id: '' })
+  const [createForm, setCreateForm] = useState({ full_name: '', email: '', password: '', role_id: '2', user_type: 'agente' })
 
   // Edit modal
   const [editMember, setEditMember] = useState<Member | null>(null)
@@ -134,7 +134,7 @@ export default function TeamPage() {
         role_id: createForm.role_id ? Number(createForm.role_id) : null,
       })
       setShowCreate(false)
-      setCreateForm({ full_name: '', email: '', password: '', role_id: '' })
+      setCreateForm({ full_name: '', email: '', password: '', role_id: '2', user_type: 'agente' })
       fetchAll()
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -374,17 +374,31 @@ export default function TeamPage() {
               <Field label="Email" value={createForm.email} onChange={v => setCreateForm(p => ({ ...p, email: v }))} placeholder="juan@empresa.com" />
               <Field label="Contraseña inicial" value={createForm.password} onChange={v => setCreateForm(p => ({ ...p, password: v }))} type="password" placeholder="Mínimo 8 caracteres" />
               <div>
-                <label className="block text-xs text-slate-400 mb-1.5">Rol</label>
-                <select
-                  value={createForm.role_id}
-                  onChange={e => setCreateForm(p => ({ ...p, role_id: e.target.value }))}
-                  className="w-full bg-white/5 border border-white/8 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500 transition-colors"
-                >
-                  <option value="">Sin rol asignado (admin)</option>
-                  {roles.map(r => (
-                    <option key={r.id} value={r.id}>{r.name.charAt(0).toUpperCase() + r.name.slice(1)}</option>
+                <label className="block text-xs text-slate-400 mb-1.5">Tipo de usuario</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { type: 'cliente', role_id: '3', label: 'Cliente', desc: 'Solo lectura', color: '#64748b' },
+                    { type: 'agente', role_id: '2', label: 'Agente', desc: 'Conversaciones', color: '#0ea5e9' },
+                    { type: 'admin', role_id: '1', label: 'Admin', desc: 'Acceso total', color: '#7c3aed' },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.type}
+                      type="button"
+                      onClick={() => setCreateForm(p => ({ ...p, user_type: opt.type, role_id: opt.role_id }))}
+                      className="rounded-xl border p-2.5 text-left transition-all"
+                      style={{
+                        background: createForm.user_type === opt.type ? `${opt.color}20` : 'rgba(255,255,255,0.03)',
+                        borderColor: createForm.user_type === opt.type ? `${opt.color}60` : 'rgba(255,255,255,0.08)',
+                      }}
+                    >
+                      <div className="text-xs font-semibold" style={{ color: createForm.user_type === opt.type ? opt.color : '#94a3b8' }}>{opt.label}</div>
+                      <div className="text-[10px] text-slate-600 mt-0.5">{opt.desc}</div>
+                    </button>
                   ))}
-                </select>
+                </div>
+              </div>
+              <div className="bg-white/3 border border-white/6 rounded-xl px-3 py-2 text-xs text-slate-500">
+                Las credenciales se enviarán automáticamente al email del usuario.
               </div>
               {createError && (
                 <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">

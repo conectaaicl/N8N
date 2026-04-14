@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { tenantAPI, authAPI } from '@/lib/api'
-import { Save, Palette, Globe, Mail, RefreshCw, CheckCircle2, Bot, Key, Lock, ShieldCheck, MessageCircle, Send } from 'lucide-react'
+import { tenantAPI, authAPI, adminAPI } from '@/lib/api'
+import { Save, Palette, Globe, Mail, RefreshCw, CheckCircle2, Bot, Key, Lock, ShieldCheck, MessageCircle, Send, CreditCard } from 'lucide-react'
 
 function Field({ label, value, onChange, placeholder, type = 'text', mono = false }: {
   label: string; value: string; onChange: (v: string) => void
@@ -91,6 +91,13 @@ export default function SettingsPage() {
   const [pwdSaved, setPwdSaved] = useState(false)
   const [pwdError, setPwdError] = useState('')
 
+  // Plans (superadmin only)
+  const [isSuperadmin, setIsSuperadmin] = useState(false)
+  const [plans, setPlans] = useState<{ id: number; name: string; price: number; features?: Record<string, unknown> }[]>([])
+  const [planEdits, setPlanEdits] = useState<Record<number, { name: string; price: string; description: string }>>({})
+  const [planSaving, setPlanSaving] = useState<Record<number, boolean>>({})
+  const [planSaved, setPlanSaved] = useState<Record<number, boolean>>({})
+
   // WhatsApp Business
   const [waPhoneId, setWaPhoneId] = useState('')
   const [waToken, setWaToken] = useState('')
@@ -113,6 +120,28 @@ export default function SettingsPage() {
   const [modelSearch, setModelSearch] = useState('')
   const [modelFilter, setModelFilter] = useState('all')
   const [showKeyPlain, setShowKeyPlain] = useState(false)
+
+  useEffect(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('omniflow_user') || '{}')
+      if (u.is_superuser) {
+        setIsSuperadmin(true)
+        adminAPI.getPlans().then(r => {
+          const data = r.data as { id: number; name: string; price: number; features?: Record<string, unknown> }[]
+          setPlans(data)
+          const edits: Record<number, { name: string; price: string; description: string }> = {}
+          data.forEach(p => {
+            edits[p.id] = {
+              name: p.name,
+              price: String(p.price),
+              description: String((p.features as Record<string, unknown> | null)?.description || ''),
+            }
+          })
+          setPlanEdits(edits)
+        }).catch(() => {})
+      }
+    } catch { /* */ }
+  }, [])
 
   useEffect(() => {
     tenantAPI.getSettings()
@@ -180,6 +209,22 @@ export default function SettingsPage() {
       const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
       setWaRefreshResult({ ok: false, msg: msg || 'Error al renovar el token' })
     } finally { setWaRefreshing(false) }
+  }
+
+  const handleSavePlan = async (planId: number) => {
+    const edit = planEdits[planId]
+    if (!edit) return
+    setPlanSaving(p => ({ ...p, [planId]: true }))
+    try {
+      await adminAPI.updatePlan(planId, {
+        name: edit.name,
+        price: parseFloat(edit.price) || 0,
+        description: edit.description,
+      })
+      setPlanSaved(p => ({ ...p, [planId]: true }))
+      setTimeout(() => setPlanSaved(p => ({ ...p, [planId]: false })), 2000)
+    } catch { /* */ }
+    finally { setPlanSaving(p => ({ ...p, [planId]: false })) }
   }
 
   const handleTestWhatsapp = async () => {
@@ -528,6 +573,72 @@ export default function SettingsPage() {
           </div>
         </form>
       </div>
+
+      {/* Plans (superadmin only) */}
+      {isSuperadmin && plans.length > 0 && (
+        <div className="bg-[#0d0d1a] border border-white/5 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-5 pb-4 border-b border-white/5">
+            <CreditCard size={15} className="text-emerald-400" />
+            <h3 className="font-semibold text-white text-sm">Planes de Suscripción</h3>
+            <span className="ml-auto text-[10px] bg-red-500/15 text-red-400 border border-red-500/20 px-2 py-0.5 rounded-full font-semibold">Superadmin</span>
+          </div>
+          <div className="space-y-4">
+            {plans.map(plan => {
+              const edit = planEdits[plan.id]
+              if (!edit) return null
+              return (
+                <div key={plan.id} className="bg-white/3 border border-white/6 rounded-xl p-4">
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">Nombre del plan</label>
+                      <input
+                        type="text"
+                        value={edit.name}
+                        onChange={e => setPlanEdits(p => ({ ...p, [plan.id]: { ...p[plan.id], name: e.target.value } }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-violet-500/40 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-400 mb-1.5">Precio mensual (USD)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={edit.price}
+                        onChange={e => setPlanEdits(p => ({ ...p, [plan.id]: { ...p[plan.id], price: e.target.value } }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-violet-500/40 transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="block text-xs font-medium text-slate-400 mb-1.5">Descripción</label>
+                    <input
+                      type="text"
+                      value={edit.description}
+                      onChange={e => setPlanEdits(p => ({ ...p, [plan.id]: { ...p[plan.id], description: e.target.value } }))}
+                      placeholder="Ideal para pequeñas empresas..."
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-violet-500/40 transition-all"
+                    />
+                  </div>
+                  <div className="flex items-center justify-end gap-3">
+                    {planSaved[plan.id] && (
+                      <div className="flex items-center gap-1.5 text-green-400 text-xs"><CheckCircle2 size={12} />Guardado</div>
+                    )}
+                    <button
+                      onClick={() => handleSavePlan(plan.id)}
+                      disabled={planSaving[plan.id]}
+                      className="flex items-center gap-1.5 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-medium px-4 py-1.5 rounded-lg text-xs disabled:opacity-40 transition-all"
+                    >
+                      {planSaving[plan.id] ? <RefreshCw size={11} className="animate-spin" /> : <Save size={11} />}
+                      {planSaving[plan.id] ? 'Guardando...' : 'Guardar plan'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Save */}
       <div className="flex items-center justify-between">

@@ -66,7 +66,11 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   const router = useRouter()
   const [user, setUser] = useState<User | null>(null)
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const [time, setTime] = useState('')
+
+  // Close mobile sidebar on route change
+  useEffect(() => { setMobileOpen(false) }, [pathname])
 
   useEffect(() => {
     // Handle ?sw=KEY handoff from superadmin "Entrar como tenant"
@@ -132,8 +136,22 @@ export default function DashboardShell({ children }: { children: React.ReactNode
   return (
     <div className="flex h-screen overflow-hidden bg-[#080812]">
 
+      {/* ── Mobile backdrop ──────────────────────────────────── */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+          onClick={() => setMobileOpen(false)}
+        />
+      )}
+
       {/* ── Sidebar ──────────────────────────────────────────── */}
-      <aside className={`relative flex flex-col border-r border-white/5 bg-[#0a0a18] transition-all duration-300 ${collapsed ? 'w-[60px]' : 'w-64'}`}>
+      <aside className={`
+        flex flex-col border-r border-white/5 bg-[#0a0a18] transition-all duration-300
+        fixed inset-y-0 left-0 z-50 w-64
+        ${mobileOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'}
+        md:relative md:inset-y-auto md:left-auto md:z-auto md:translate-x-0
+        ${collapsed ? 'md:w-[60px]' : 'md:w-64'}
+      `}>
 
         {/* Logo */}
         <div className={`border-b border-white/5 flex items-center justify-center flex-shrink-0 ${collapsed ? 'h-14 px-2' : 'h-28 px-4'}`}>
@@ -246,7 +264,24 @@ export default function DashboardShell({ children }: { children: React.ReactNode
       </aside>
 
       {/* ── Main ─────────────────────────────────────────────── */}
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto min-w-0">
+        {/* Mobile top bar */}
+        <div className="md:hidden sticky top-0 z-30 flex items-center gap-3 px-4 py-3 bg-[#080812]/95 backdrop-blur-sm border-b border-white/5">
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="text-slate-400 hover:text-white transition-colors flex-shrink-0"
+            aria-label="Abrir menú"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <path d="M3 12h18M3 6h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </button>
+          {branding?.settings?.logo_url
+            ? <img src={branding.settings.logo_url} alt="Logo" className="h-7 object-contain" />
+            : <span className="text-sm font-bold text-white">{branding?.name || 'OmniFlow'}</span>
+          }
+          {time && <span className="ml-auto text-[11px] text-slate-600 font-mono tabular-nums">{time}</span>}
+        </div>
         {children}
       </main>
     </div>
